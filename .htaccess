@@ -11,5 +11,5 @@ RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^api(?:/(.*))?$ gateway/index.php [QSA,L]
 
-# Pretty redirect root
-RewriteRule ^$ public/login.html [L]
+# Redirect the root externally so the browser resolves public/assets correctly.
+RewriteRule ^$ public/login.html [R=302,L]

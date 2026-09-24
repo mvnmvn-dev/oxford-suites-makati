@@ -7,7 +7,7 @@ RUN echo "ServerName oxfordsuitesmakati.io" >> /etc/apache2/apache2.conf
 RUN docker-php-ext-install mysqli pdo pdo_mysql
 
 # 3. Enable apache rewrite rules for framework routing paths
-RUN a2enmod rewrite
+RUN a2enmod rewrite headers
 
 # 3a. Enable the project Apache configuration for root index and .htaccess rules
 COPY docker/apache-site.conf /etc/apache2/conf-available/oxford-site.conf

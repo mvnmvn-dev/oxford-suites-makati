@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tables & QR — Oxford Suites RMS</title>
+  <link rel="icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <link rel="shortcut icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <script src="../assets/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="../assets/css/tailwind.css" />
+  <link rel="stylesheet" href="../assets/css/app.css?v=17" />
+</head>
+<body>
+  <div id="app-root" data-active="tables" data-roles="admin,cashier"></div>
+
+  <div id="table-modal" class="rms-modal-backdrop hidden" role="dialog" aria-modal="true">
+    <div class="rms-modal">
+      <h2>Update table status</h2>
+      <p id="table-summary" class="mt-1 text-sm text-charcoal-muted"></p>
+      <form id="table-form" class="mt-4 space-y-3">
+        <input type="hidden" id="table-id" />
+        <div>
+          <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Status</label>
+          <select id="table-status" class="field">
+            <option value="available">Available</option>
+            <option value="occupied">Occupied</option>
+            <option value="reserved">Reserved</option>
+            <option value="cleaning">Cleaning</option>
+          </select>
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" class="btn-secondary" data-modal-close>Cancel</button>
+          <button type="submit" class="btn-primary">Save status</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="../assets/js/app.js?v=17"></script>
+  <script src="../assets/js/staff-shell.js?v=10"></script>
+  <script>
+    let tables = [];
+    const topBorder = {
+      available: 'border-t-sage',
+      occupied: 'border-t-ember',
+      reserved: 'border-t-brass',
+      reserved_soon: 'border-t-brass',
+      cleaning: 'border-t-clay',
+    };
+    RMS.bindModalDismiss('table-modal');
+
+    function floorStatus(t) {
+      return t.display_status || t.status;
+    }
+
+    async function renderFloor() {
+      const res = await RMS.api('/tables');
+      tables = res.data;
+      const byZone = {};
+      tables.forEach((t) => {
+        const z = t.zone || 'Main Dining';
+        (byZone[z] = byZone[z] || []).push(t);
+      });
+      document.getElementById('floor').innerHTML = Object.keys(byZone).sort().map((zone) => `
+        <section class="floor-zone">
+          <h3 class="floor-zone-title">${zone}</h3>
+          <div class="floor-zone-grid">
+            ${byZone[zone].map((t) => {
+              const st = floorStatus(t);
+              const soon = st === 'reserved_soon' && t.next_reservation ? t.next_reservation : '';
+              return `
+              <article class="floor-table" data-status="${st}" data-edit="${t.id}" title="${t.table_number}">
+                <strong class="font-display text-lg">${t.table_number}</strong>
+                <span class="mt-1 text-[10px] text-charcoal-muted">${t.capacity} seats · ${t.seating_type || '—'}</span>
+                <div class="mt-2">${RMS.statusBadge(st)}</div>
+                <p class="mt-1 text-[10px] font-semibold">${RMS.money(t.current_bill || 0)}</p>
+                ${soon ? `<p class="mt-1 text-[9px] text-brass">Soon · ${soon}</p>` : ''}
+                <button type="button" class="btn-sm mt-2" data-edit="${t.id}">Status</button>
+              </article>`;
+            }).join('')}
+          </div>
+        </section>`).join('');
+    }
+
+    async function renderRequests() {
+      const root = document.getElementById('service-requests');
+      const statsEl = document.getElementById('request-stats');
+      try {
+        const [res, stats] = await Promise.all([
+          RMS.api('/notifications/requests?status=active'),
+          RMS.api('/notifications/request-stats').catch(() => ({ data: null })),
+        ]);
+        const requests = res.data || [];
+        if (statsEl && stats.data) {
+          statsEl.textContent = `Avg response ${stats.data.avg_response_minutes || 0} min · Pending ${stats.data.pending || 0} · Completed today ${stats.data.completed_today || 0}`;
+        }
+        const priCls = { high: 'border-ember bg-ember/5', medium: 'border-brass bg-brass/10', low: 'border-line bg-parchment-light' };
+        root.innerHTML = requests.length ? requests.map((r) => {
+          const waitMin = Math.floor((Number(r.wait_seconds) || 0) / 60);
+          const waitSec = (Number(r.wait_seconds) || 0) % 60;
+          const pri = r.priority || 'medium';
+          return `<div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 text-sm ${priCls[pri] || priCls.medium}">
+            <div>
+              <div class="flex flex-wrap items-center gap-2">
+                <strong>Table ${r.table_number || r.table_id}</strong>
+                <span class="rounded-full bg-surface px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">${pri}</span>
+                <span class="capitalize text-charcoal-muted">${String(r.request_type).replace(/_/g, ' ')}</span>
+                ${RMS.statusBadge(r.status)}
+              </div>
+              ${r.note ? `<p class="mt-1 text-xs text-charcoal-muted">${r.note}</p>` : ''}
+              <p class="mt-1 text-[10px] font-semibold text-charcoal-muted">⏱ Waiting ${waitMin}:${String(waitSec).padStart(2,'0')} · ${r.created_at}</p>
+            </div>
+            <div class="flex gap-2">
+              ${r.status === 'open' ? `<button class="btn-sm" data-request-status="acknowledged" data-request-id="${r.id}">Accept</button>` : ''}
+              <button class="btn-sm" data-request-status="completed" data-request-id="${r.id}">Complete</button>
+            </div>
+          </div>`;
+        }).join('') : '<p class="rounded-xl border border-dashed border-line p-5 text-sm text-charcoal-muted">No active service requests — floor is clear.</p>';
+      } catch (_) { root.innerHTML = '<p class="text-sm text-charcoal-muted">Service request queue unavailable.</p>'; }
+    }
+
+    RMS.mountStaffPage({
+      title: 'Tables & QR',
+      subtitle: 'Floor plan status and guest QR links for table-side ordering.',
+      async render(body) {
+        body.innerHTML = `
+          <div class="mb-5 flex flex-wrap gap-4 text-xs text-charcoal-muted">
+            <span class="inline-flex items-center gap-2"><i class="h-3.5 w-3.5 rounded bg-sage"></i> Available</span>
+            <span class="inline-flex items-center gap-2"><i class="h-3.5 w-3.5 rounded bg-ember"></i> Occupied</span>
+            <span class="inline-flex items-center gap-2"><i class="h-3.5 w-3.5 rounded bg-brass"></i> Reserved / soon</span>
+            <span class="inline-flex items-center gap-2"><i class="h-3.5 w-3.5 rounded bg-clay"></i> Cleaning</span>
+          </div>
+          <section class="mb-6">
+            <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 class="font-display text-xl font-semibold">Waiter request queue</h2>
+                <p id="request-stats" class="mt-0.5 text-xs text-charcoal-muted">Live service alerts</p>
+              </div>
+              <button type="button" id="request-refresh" class="btn-secondary !text-xs">Refresh</button>
+            </div>
+            <div id="service-requests" class="space-y-2"></div>
+          </section>
+          <div id="floor" class="floor-plan"></div>`;
+        await renderFloor();
+        await renderRequests();
+        setInterval(async () => {
+          await renderFloor();
+          await renderRequests();
+        }, 10000);
+        window.addEventListener('rms:live', async () => {
+          await renderFloor();
+          await renderRequests();
+        });
+        document.getElementById('request-refresh').onclick = async () => {
+          await renderFloor();
+          await renderRequests();
+        };
+        document.getElementById('service-requests').onclick = async (e) => {
+          const btn = e.target.closest('[data-request-status]');
+          if (!btn) return;
+          try { await RMS.api(`/notifications/requests/${btn.dataset.requestId}/status`, { method: 'PATCH', body: { status: btn.dataset.requestStatus } }); await renderRequests(); RMS.toast('Service request updated'); }
+          catch (ex) { RMS.toast(ex.message, 'error'); }
+        };
+        document.getElementById('floor').onclick = (e) => {
+          const tile = e.target.closest('[data-edit]');
+          if (!tile) return;
+          const t = tables.find((x) => String(x.id) === tile.dataset.edit);
+          if (!t) return;
+          document.getElementById('table-id').value = t.id;
+          document.getElementById('table-status').value = t.status;
+          document.getElementById('table-summary').innerHTML =
+            `<strong>${t.table_number}</strong> · ${t.zone} · ${t.capacity} seats` +
+            `<div class="mt-2 grid grid-cols-2 gap-2 text-xs">` +
+            `<div>Guests<br><strong>${t.guest_name || '—'}</strong></div>` +
+            `<div>Open orders<br><strong>${t.open_orders || 0}</strong></div>` +
+            `<div>Bill<br><strong>${RMS.money(t.current_bill)}</strong></div>` +
+            `<div>Seated<br><strong>${t.seated_at || '—'}</strong></div>` +
+            (t.next_reservation ? `<div class="col-span-2">Next reservation<br><strong>${t.next_reservation}</strong></div>` : '') +
+            `</div>`;
+          RMS.openModal('table-modal');
+        };
+      },
+    });
+
+    document.getElementById('table-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const status = document.getElementById('table-status').value;
+      try {
+        await RMS.api(`/tables/${document.getElementById('table-id').value}/status`, {
+          method: 'PATCH',
+          body: { status },
+        });
+        RMS.closeModal('table-modal');
+        RMS.toast('Table status set to ' + status);
+        await renderFloor();
+      } catch (ex) {
+        RMS.toast(ex.message, 'error');
+      }
+    };
+  </script>
+</body>
+</html>

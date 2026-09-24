@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Promotions — Oxford Suites RMS</title>
+  <link rel="icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <link rel="shortcut icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <script src="../assets/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="../assets/css/tailwind.css" />
+  <link rel="stylesheet" href="../assets/css/app.css?v=17" />
+</head>
+<body>
+  <div id="app-root" data-active="promotions" data-roles="admin"></div>
+  <script src="../assets/js/app.js?v=17"></script>
+  <script src="../assets/js/staff-shell.js?v=10"></script>
+  <script>
+    async function loadList() {
+      const res = await RMS.api('/promotions');
+      const rows = res.data || [];
+      document.getElementById('promo-list').innerHTML = rows.length ? rows.map((p) => `
+        <tr class="border-b border-line/60">
+          <td class="px-3 py-3 text-sm"><strong>${p.code}</strong><div class="text-xs text-charcoal-muted">${p.name}</div></td>
+          <td class="px-3 py-3 text-sm capitalize">${String(p.type).replace(/_/g, ' ')}</td>
+          <td class="px-3 py-3 text-sm">${p.type === 'percentage' ? p.value + '%' : (p.type === 'buy_one_take_one' ? 'BOGO' : RMS.money(p.value))}</td>
+          <td class="px-3 py-3 text-xs text-charcoal-muted">${(p.starts_at || '').slice(0, 16)} → ${(p.ends_at || '').slice(0, 16)}</td>
+          <td class="px-3 py-3">${Number(p.is_active) === 1 ? RMS.statusBadge('confirmed') : RMS.statusBadge('cancelled')}</td>
+          <td class="px-3 py-3"><button type="button" class="btn-sm" data-toggle="${p.id}" data-active="${p.is_active}">${Number(p.is_active) === 1 ? 'Disable' : 'Enable'}</button></td>
+        </tr>`).join('') : '<tr><td colspan="6" class="px-3 py-8 text-center text-sm text-charcoal-muted">No promotions yet.</td></tr>';
+    }
+
+    RMS.mountStaffPage({
+      title: 'Promotions',
+      subtitle: 'Percentage, fixed, Buy 1 Take 1, and birthday offers applied at POS.',
+      async render(body) {
+        const now = new Date();
+        const start = now.toISOString().slice(0, 16);
+        const end = new Date(now.getTime() + 30 * 86400000).toISOString().slice(0, 16);
+        body.innerHTML = `
+          <div class="grid gap-5 lg:grid-cols-[1fr_1.2fr]">
+            <form id="promo-form" class="space-y-3 rounded-2xl border border-line bg-parchment-light p-5">
+              <h3 class="font-display text-lg font-semibold">Create promotion</h3>
+              <input id="p-code" class="field" placeholder="Code (e.g. SUITE10)" required />
+              <input id="p-name" class="field" placeholder="Display name" required />
+              <select id="p-type" class="field">
+                <option value="percentage">Percentage</option>
+                <option value="fixed">Fixed amount</option>
+                <option value="buy_one_take_one">Buy 1 Take 1</option>
+                <option value="birthday">Birthday</option>
+              </select>
+              <input id="p-value" class="field" type="number" step="0.01" min="0" value="10" placeholder="Value" />
+              <div class="grid grid-cols-2 gap-2">
+                <input id="p-start" class="field" type="datetime-local" value="${start}" required />
+                <input id="p-end" class="field" type="datetime-local" value="${end}" required />
+              </div>
+              <button type="submit" class="btn-primary w-full">Save promotion</button>
+            </form>
+            <div class="overflow-x-auto rounded-2xl border border-line">
+              <table class="w-full text-left">
+                <thead class="bg-parchment/80 text-[11px] uppercase tracking-wide text-charcoal-muted">
+                  <tr><th class="px-3 py-3">Code</th><th class="px-3 py-3">Type</th><th class="px-3 py-3">Value</th><th class="px-3 py-3">Window</th><th class="px-3 py-3">Status</th><th class="px-3 py-3"></th></tr>
+                </thead>
+                <tbody id="promo-list"></tbody>
+              </table>
+            </div>
+          </div>`;
+
+        document.getElementById('promo-form').onsubmit = async (e) => {
+          e.preventDefault();
+          try {
+            const managerPin = await RMS.requestManagerPin('create this promotion');
+            if (!managerPin) return;
+            await RMS.api('/promotions', {
+              method: 'POST',
+              body: {
+                code: document.getElementById('p-code').value,
+                name: document.getElementById('p-name').value,
+                type: document.getElementById('p-type').value,
+                value: Number(document.getElementById('p-value').value),
+                starts_at: document.getElementById('p-start').value.replace('T', ' ') + ':00',
+                ends_at: document.getElementById('p-end').value.replace('T', ' ') + ':00',
+                manager_pin: managerPin,
+              },
+            });
+            RMS.toast('Promotion created');
+            e.target.reset();
+            await loadList();
+          } catch (ex) {
+            RMS.toast(ex.message, 'error');
+          }
+        };
+        document.getElementById('promo-list').onclick = async (e) => {
+          const btn = e.target.closest('[data-toggle]');
+          if (!btn) return;
+          try {
+            if (!await RMS.confirm('Change this promotion status?', { title: 'Update promotion', confirmLabel: 'Continue' })) return;
+            const managerPin = await RMS.requestManagerPin('change this promotion');
+            if (!managerPin) return;
+            await RMS.api('/promotions/' + btn.dataset.toggle, {
+              method: 'PATCH',
+              body: { is_active: Number(btn.dataset.active) === 1 ? 0 : 1, manager_pin: managerPin },
+            });
+            RMS.toast('Promotion updated');
+            await loadList();
+          } catch (ex) {
+            RMS.toast(ex.message, 'error');
+          }
+        };
+        await loadList();
+      },
+    });
+  </script>
+</body>
+</html>

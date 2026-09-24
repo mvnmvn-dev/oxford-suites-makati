@@ -1,0 +1,11 @@
+.env
+*.log
+ml-service/models/*.npy
+ml-service/data/*.json
+__pycache__/
+.venv/
+venv/
+node_modules/
+.DS_Store
+Thumbs.db
+_*.php

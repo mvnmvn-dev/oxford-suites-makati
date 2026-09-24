@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>The Suites — Oxford Suites Makati</title>
+  <link rel="icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <link rel="shortcut icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <script src="../assets/js/theme-boot.js"></script>
+  <script>try { localStorage.setItem('oxford-rms-theme', 'light'); } catch (e) {} document.documentElement.classList.remove('dark');</script>
+  <link rel="stylesheet" href="../assets/css/tailwind.css" />
+  <link rel="stylesheet" href="../assets/css/app.css?v=17" />
+</head>
+<body class="m-0">
+  <div id="app-root" data-active="suites"></div>
+  <script src="../assets/js/app.js?v=4"></script>
+  <script src="../assets/js/customer-shell.js"></script>
+  <script>
+    RMS.mountCustomerPage({
+      active: 'suites',
+      requireAuth: false,
+      title: 'Dining at Oxford Suites',
+      subtitle: 'Spaces composed for long dinners, quiet celebrations, and Makati evenings.',
+      async render(body) {
+        body.innerHTML = `
+          <div class="overflow-hidden rounded-2xl border border-[#D9CFC2] bg-[#1C1412] p-6 text-white sm:p-8">
+            <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-[#E2C48A]">Featured this season</p>
+            <h2 class="mt-2 font-display text-2xl font-semibold sm:text-3xl">Chef’s tasting · Fridays &amp; Saturdays</h2>
+            <p class="mt-3 max-w-2xl text-sm leading-relaxed text-white/75">
+              A five-course progression from the suite kitchen — truffle soup, short rib, sea bass, and a closing fondant — paired with cellar recommendations.
+            </p>
+            <div class="mt-5 flex flex-wrap gap-3">
+              <a href="${RMS.customerMenuHref()}" class="rounded-xl bg-[#C89A4B] px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-[#1C1412]">View menu</a>
+              <a href="reserve.html" class="rounded-xl border border-white/30 px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-white hover:bg-white/10">Reserve a night</a>
+            </div>
+          </div>
+
+          <div class="mt-8 grid gap-4 md:grid-cols-3">
+            ${[
+              ['Main Dining', 'Window Bay & center room', 'Open seating with suite service — ideal for couples and small parties. Soft lighting, brass accents, and a view of the Makati evening.'],
+              ['Terrace', 'Sunset service', 'Outdoor tables for aperitivo and late dinners. Perfect for spritzes, shared plates, and cooler nights.'],
+              ['Oak Suite', 'Private dining', 'A closed room for up to 12 guests. Host birthdays, client dinners, or intimate tastings with a dedicated captain.'],
+            ].map(([t, s, c]) => `
+              <article class="rounded-2xl border border-[#D9CFC2] bg-[#FFFCFA] p-5">
+                <p class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#A67C3A]">${s}</p>
+                <h3 class="mt-2 font-display text-xl font-semibold text-[#241E1C]">${t}</h3>
+                <p class="mt-2 text-sm leading-relaxed text-[#6B635C]">${c}</p>
+              </article>`).join('')}
+          </div>
+
+          <div class="mt-8 grid gap-4 lg:grid-cols-2">
+            <div class="rounded-2xl border border-[#D9CFC2] bg-[#FFFCFA] p-6">
+              <h3 class="font-display text-xl font-semibold">Hours &amp; dress</h3>
+              <ul class="mt-4 space-y-3 text-sm text-[#6B635C]">
+                <li><strong class="text-[#241E1C]">Dinner</strong> — 5:30 PM to 10:30 PM daily</li>
+                <li><strong class="text-[#241E1C]">Bar &amp; Lounge</strong> — from 4:00 PM</li>
+                <li><strong class="text-[#241E1C]">Dress</strong> — smart casual; jackets welcome for the Oak Suite</li>
+                <li><strong class="text-[#241E1C]">Parking</strong> — validated for dining guests</li>
+              </ul>
+            </div>
+            <div class="rounded-2xl border border-[#D9CFC2] bg-[#FFFCFA] p-6">
+              <h3 class="font-display text-xl font-semibold">How to dine with us</h3>
+              <ol class="mt-4 list-decimal space-y-3 pl-4 text-sm text-[#6B635C]">
+                <li>Create a guest account or sign in.</li>
+                <li>Reserve a table — or scan your table QR on arrival.</li>
+                <li>Order from the digital menu; the kitchen receives your ticket instantly.</li>
+                <li>Follow status in My Orders while you enjoy the evening.</li>
+              </ol>
+              <a href="login.html" class="mt-5 inline-block text-sm font-semibold text-[#A8342A] hover:underline">Join the guest portal →</a>
+            </div>
+          </div>`;
+      },
+    });
+  </script>
+</body>
+</html>

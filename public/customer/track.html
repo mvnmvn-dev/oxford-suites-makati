@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Track order — Oxford Suites</title>
+  <link rel="icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <link rel="shortcut icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <script src="../assets/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="../assets/css/tailwind.css" />
+  <link rel="stylesheet" href="../assets/css/app.css?v=17" />
+  <style>
+    .track-step { transition: transform .35s ease, background-color .35s ease, box-shadow .35s ease; }
+    .track-step.is-on { transform: scale(1.08); box-shadow: 0 0 0 4px rgba(168,52,42,.18); }
+    .track-bar { height: 3px; background: #D9CFC2; flex: 1; margin-top: 8px; }
+    .track-bar.is-on { background: #A8342A; }
+    @keyframes trackPulse { 0%,100%{opacity:1} 50%{opacity:.55} }
+    .track-live { animation: trackPulse 1.6s ease-in-out infinite; }
+    html.a11y-reduced-motion .track-live, html.a11y-reduced-motion .track-step { animation: none !important; transition: none !important; }
+  </style>
+</head>
+<body class="min-h-screen bg-[#F6F1E9] text-[#241E1C]">
+  <header class="bg-[#1C1412] px-6 py-8 text-white">
+    <p class="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#E2C48A]">Restaurant of Suite</p>
+    <h1 class="mt-2 font-display text-4xl font-semibold">Track your order</h1>
+    <p class="mt-2 text-sm text-white/75">Live kitchen progress with estimated wait.</p>
+  </header>
+  <main class="mx-auto max-w-2xl px-4 py-8">
+    <div id="track-root" class="rms-skeleton rounded-2xl border border-[#D9CFC2] bg-[#FFFCFA] p-6 min-h-[220px]"></div>
+    <a href="menu.html" class="mt-6 inline-flex rounded-xl bg-[#A8342A] px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-white">Back to menu</a>
+  </main>
+  <script src="../assets/js/app.js?v=4"></script>
+  <script>
+    const id = new URLSearchParams(location.search).get('id') || localStorage.getItem('oxford-last-order-id');
+    const stages = ['pending', 'preparing', 'ready', 'served'];
+    const stageLabels = { pending: 'Received', preparing: 'Preparing', ready: 'Ready', served: 'Served' };
+
+    function render(order) {
+      const statusKey = order.status === 'confirmed' ? 'pending' : (order.status === 'paid' ? 'served' : order.status);
+      const current = Math.max(0, stages.indexOf(statusKey));
+      const etaPct = Math.min(100, Number(order.eta_progress) || 0);
+      const queue = order.queue_position;
+      const queueLabel = queue === 0 ? 'Ready for serving' : (queue == null ? '—' : (queue === 1 ? 'Next up' : '#' + queue + ' in kitchen queue'));
+
+      document.getElementById('track-root').innerHTML = `
+        <div>
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p class="text-[10px] font-bold uppercase tracking-[0.14em] text-[#A67C3A]">Order tracking</p>
+              <h2 class="mt-1 font-display text-2xl font-semibold">${order.order_number}</h2>
+              <p class="mt-1 text-sm text-[#6B635C]">${order.table_number ? 'Table ' + order.table_number : 'QR order'} · ${order.created_at || ''}</p>
+            </div>
+            <div class="text-right">
+              ${RMS.statusBadge(order.status)}
+              <p class="mt-2 text-[10px] text-[#6B635C] track-live">Updated ${order.last_updated || order.updated_at || 'just now'}</p>
+            </div>
+          </div>
+
+          <div class="mt-7 flex items-start" role="list" aria-label="Order status timeline">
+            ${stages.map((s, i) => `
+              <div class="flex flex-1 flex-col items-center" role="listitem">
+                <div class="track-step mx-auto grid h-5 w-5 place-items-center rounded-full ${i <= current ? 'bg-[#A8342A] is-on' : 'bg-[#D9CFC2]'}">
+                  ${i < current ? '<span class="text-[9px] text-white">✓</span>' : ''}
+                </div>
+                <p class="mt-2 text-center text-[10px] font-semibold capitalize ${i <= current ? 'text-[#A8342A]' : 'text-[#6B635C]'}">${stageLabels[s]}</p>
+              </div>
+              ${i < stages.length - 1 ? `<div class="track-bar ${i < current ? 'is-on' : ''}" aria-hidden="true"></div>` : ''}
+            `).join('')}
+          </div>
+
+          <p class="mt-5 rounded-xl bg-[#F3ECE1] px-4 py-3 text-sm font-semibold">${order.status_label || 'Order received'}</p>
+
+          <div class="mt-4 grid gap-3 sm:grid-cols-3">
+            <div class="rounded-xl border border-[#E8DFD0] bg-[#FFFCFA] p-3">
+              <p class="text-[10px] font-bold uppercase tracking-wide text-[#A67C3A]">ETA</p>
+              <p class="mt-1 font-display text-lg font-semibold">${order.eta_label || '—'}</p>
+            </div>
+            <div class="rounded-xl border border-[#E8DFD0] bg-[#FFFCFA] p-3">
+              <p class="text-[10px] font-bold uppercase tracking-wide text-[#A67C3A]">Progress</p>
+              <p class="mt-1 font-display text-lg font-semibold">${etaPct}%</p>
+            </div>
+            <div class="rounded-xl border border-[#E8DFD0] bg-[#FFFCFA] p-3">
+              <p class="text-[10px] font-bold uppercase tracking-wide text-[#A67C3A]">Queue</p>
+              <p class="mt-1 font-display text-lg font-semibold">${queueLabel}</p>
+            </div>
+          </div>
+          <div class="mt-3 h-2.5 overflow-hidden rounded-full bg-[#D9CFC2]" role="progressbar" aria-valuenow="${etaPct}" aria-valuemin="0" aria-valuemax="100">
+            <div class="h-full rounded-full bg-[#A8342A] transition-all duration-700" style="width:${etaPct}%"></div>
+          </div>
+          <p class="mt-2 text-xs text-[#6B635C]">Based on ~${order.est_prep_minutes || 15} min kitchen prep${order.kitchen_status ? ' · Kitchen: ' + String(order.kitchen_status).replace(/_/g,' ') : ''}</p>
+
+          <ul class="mt-5 space-y-2 border-t border-[#E8DFD0] pt-4">
+            ${(order.items || []).map((i) => `
+              <li class="text-sm">
+                <div class="flex justify-between gap-3">
+                  <span><strong>${i.quantity}×</strong> ${i.item_name || i.name}</span>
+                  <span>${RMS.money((i.unit_price || i.price || 0) * i.quantity)}</span>
+                </div>
+                ${i.notes && typeof RMS.formatMods === 'function' ? RMS.formatMods(i.notes) : ''}
+              </li>`).join('')}
+          </ul>
+          <div class="mt-4 flex justify-between border-t border-[#E8DFD0] pt-4 font-semibold">
+            <span>Total</span>
+            <span class="text-[#A8342A]">${RMS.money(order.total)}</span>
+          </div>
+        </div>`;
+    }
+
+    async function load() {
+      if (!id) {
+        document.getElementById('track-root').innerHTML = '<p class="text-sm text-[#6B635C]">No order selected. Place an order from the menu first.</p>';
+        return;
+      }
+      try {
+        const res = await RMS.api('/orders/' + encodeURIComponent(id));
+        render(res.data);
+      } catch (e) {
+        document.getElementById('track-root').innerHTML = '<p class="text-sm text-[#8F2C24]">We could not find that order.</p>';
+      }
+    }
+    load();
+    setInterval(load, 8000);
+  </script>
+</body>
+</html>

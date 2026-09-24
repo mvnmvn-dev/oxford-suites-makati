@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Reservations — Oxford Suites RMS</title>
+  <link rel="icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <link rel="shortcut icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <script src="../assets/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="../assets/css/tailwind.css" />
+  <link rel="stylesheet" href="../assets/css/app.css?v=17" />
+  <style>
+    .res-cal-day {
+      aspect-ratio: 1 / 1;
+      min-height: 4.25rem;
+    }
+    @media (min-width: 640px) {
+      .res-cal-day { min-height: 4.75rem; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app-root" data-active="reservations" data-roles="admin,cashier"></div>
+
+  <div id="res-modal" class="rms-modal-backdrop hidden" role="dialog" aria-modal="true">
+    <div class="rms-modal">
+      <h2>New reservation</h2>
+      <form id="res-form" class="mt-4 space-y-3">
+        <div>
+          <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Guest name</label>
+          <input id="r-name" required class="field" />
+        </div>
+        <div>
+          <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Email</label>
+          <input id="r-email" type="email" class="field" />
+        </div>
+        <div>
+          <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Phone</label>
+          <input id="r-phone" class="field" />
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Party size</label>
+            <input id="r-party" type="number" min="1" value="2" required class="field" />
+          </div>
+          <div>
+            <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Status</label>
+            <select id="r-status" class="field">
+              <option value="confirmed">Confirmed</option>
+              <option value="pending">Pending</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Date</label>
+            <input id="r-date" type="date" required class="field" />
+          </div>
+          <div>
+            <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Time</label>
+            <input id="r-time" type="time" value="19:00" required class="field" />
+          </div>
+        </div>
+        <div>
+          <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Notes</label>
+          <textarea id="r-notes" rows="2" class="field"></textarea>
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" class="btn-secondary" data-modal-close>Cancel</button>
+          <button type="submit" class="btn-primary">Book table</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="../assets/js/app.js?v=17"></script>
+  <script src="../assets/js/staff-shell.js?v=10"></script>
+  <script>
+    let cursor = new Date();
+    cursor.setDate(1);
+    let byDay = {};
+    let selectedDay = null;
+    RMS.bindModalDismiss('res-modal');
+
+    function formatDayLabel(ds) {
+      if (!ds) return 'Select a day';
+      return new Date(ds + 'T12:00:00').toLocaleDateString('en-US', {
+        weekday: 'long', month: 'long', day: 'numeric',
+      });
+    }
+
+    function monthKey() {
+      return cursor.getFullYear() + '-' + String(cursor.getMonth() + 1).padStart(2, '0');
+    }
+
+    function openNewReservation(dateStr) {
+      document.getElementById('res-form').reset();
+      document.getElementById('r-party').value = '2';
+      document.getElementById('r-time').value = '19:00';
+      document.getElementById('r-status').value = 'confirmed';
+      document.getElementById('r-date').value = dateStr || new Date().toISOString().slice(0, 10);
+      RMS.openModal('res-modal');
+    }
+
+    function statusDots(list) {
+      const counts = { confirmed: 0, pending: 0, seated: 0 };
+      list.forEach((r) => {
+        if (counts[r.status] != null) counts[r.status]++;
+        else if (r.status === 'cancelled') return;
+        else counts.pending++;
+      });
+      const parts = [];
+      if (counts.confirmed) parts.push(`<span class="h-1.5 w-1.5 rounded-full bg-sage" title="${counts.confirmed} confirmed"></span>`);
+      if (counts.pending) parts.push(`<span class="h-1.5 w-1.5 rounded-full bg-clay" title="${counts.pending} pending"></span>`);
+      if (counts.seated) parts.push(`<span class="h-1.5 w-1.5 rounded-full bg-brass" title="${counts.seated} seated"></span>`);
+      return parts.join('');
+    }
+
+    function renderDayDetail(ds) {
+      const title = document.getElementById('day-title');
+      const meta = document.getElementById('day-meta');
+      const list = document.getElementById('day-list');
+      if (!title || !meta || !list) return;
+
+      selectedDay = ds;
+      title.textContent = formatDayLabel(ds);
+
+      const rows = ((byDay[ds] || [])).slice().sort((a, b) =>
+        String(a.reservation_time || '').localeCompare(String(b.reservation_time || ''))
+      );
+      meta.textContent = ds
+        ? (rows.length ? rows.length + ' booking' + (rows.length === 1 ? '' : 's') : 'No bookings yet')
+        : 'Click a date to review the floor';
+
+      if (!ds) {
+        list.innerHTML = `
+          <div class="flex flex-col items-center justify-center px-4 py-16 text-center">
+            <div class="mb-3 grid h-12 w-12 place-items-center rounded-full bg-parchment text-charcoal-muted">
+              <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+            </div>
+            <p class="text-sm font-medium text-charcoal">Pick a day</p>
+            <p class="mt-1 max-w-[220px] text-xs text-charcoal-muted">The calendar stays light — full guest details open here.</p>
+          </div>`;
+        return;
+      }
+
+      if (!rows.length) {
+        list.innerHTML = `
+          <div class="flex flex-col items-center justify-center px-4 py-14 text-center">
+            <p class="text-sm font-medium text-charcoal">Free evening</p>
+            <p class="mt-1 text-xs text-charcoal-muted">No reservations on this date.</p>
+            <button type="button" id="btn-empty-book" class="btn-primary mt-4">Book this day</button>
+          </div>`;
+        document.getElementById('btn-empty-book')?.addEventListener('click', () => openNewReservation(ds));
+        return;
+      }
+
+      list.innerHTML = rows.map((r, idx) => `
+        <article class="border-b border-line/70 px-4 py-3.5 transition hover:bg-parchment/50 ${idx === 0 ? '' : ''}">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="font-display text-lg font-semibold tabular-nums tracking-tight">${(r.reservation_time || '').slice(0, 5)}</span>
+                ${RMS.statusBadge(r.status)}
+              </div>
+              <p class="mt-1 truncate text-sm font-semibold text-charcoal">${r.customer_name}</p>
+              <p class="mt-0.5 text-xs text-charcoal-muted">Party of ${r.party_size || '—'}${r.customer_phone ? ' · ' + r.customer_phone : ''}</p>
+              ${r.notes ? `<p class="mt-2 text-xs leading-relaxed text-charcoal-muted">${r.notes}</p>` : ''}
+              ${['cancelled', 'completed', 'no_show'].includes(r.status) ? '' : `<button type="button" class="btn-sm mt-3 text-ember" data-cancel-res="${r.id}">Cancel reservation</button>`}
+            </div>
+          </div>
+        </article>`).join('');
+      list.onclick = async (event) => {
+        const button = event.target.closest('[data-cancel-res]');
+        if (!button) return;
+        if (!await RMS.confirm('Cancel this reservation?', { title: 'Cancel reservation', confirmLabel: 'Continue' })) return;
+        const managerPin = await RMS.requestManagerPin('cancel this reservation');
+        if (!managerPin) return;
+        try {
+          await RMS.api('/reservations/' + button.dataset.cancelRes + '/status', { method: 'PATCH', body: { status: 'cancelled', manager_pin: managerPin } });
+          RMS.toast('Reservation cancelled');
+          await drawCal();
+        } catch (ex) { RMS.toast(ex.message, 'error'); }
+      };
+    }
+
+    function syncSelectionStyles() {
+      document.querySelectorAll('.res-cal-day[data-day]').forEach((el) => {
+        const on = el.dataset.day === selectedDay;
+        el.classList.toggle('is-selected', on);
+      });
+    }
+
+    async function drawCal() {
+      const month = monthKey();
+      document.getElementById('month-label').textContent = cursor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      const res = await RMS.api('/reservations/calendar?month=' + month);
+      byDay = {};
+      res.data.forEach((r) => { (byDay[r.reservation_date] = byDay[r.reservation_date] || []).push(r); });
+
+      const monthBookings = Object.values(byDay).reduce((n, rows) => n + rows.length, 0);
+      const monthStat = document.getElementById('month-stat');
+      if (monthStat) monthStat.textContent = monthBookings + ' this month';
+
+      const firstDow = new Date(cursor.getFullYear(), cursor.getMonth(), 1).getDay();
+      const daysInMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+      const todayStr = new Date().toISOString().slice(0, 10);
+
+      const heads = ['S','M','T','W','T','F','S']
+        .map((d) => `<div class="py-2 text-center text-[10px] font-semibold uppercase tracking-[0.12em] text-charcoal-muted">${d}</div>`)
+        .join('');
+
+      let cells = '';
+      for (let i = 0; i < firstDow; i++) {
+        cells += '<div class="res-cal-day rounded-xl bg-transparent"></div>';
+      }
+
+      for (let day = 1; day <= daysInMonth; day++) {
+        const ds = month + '-' + String(day).padStart(2, '0');
+        const list = byDay[ds] || [];
+        const count = list.length;
+        const isToday = ds === todayStr;
+        const isSelected = ds === selectedDay;
+        const density = count === 0 ? '' : count <= 2 ? 'light' : count <= 5 ? 'mid' : 'heavy';
+
+        cells += `
+          <button type="button" data-day="${ds}"
+            class="res-cal-day group relative flex flex-col items-center justify-between rounded-2xl border border-transparent p-2 text-center transition
+              hover:border-line hover:bg-parchment/70
+              ${isSelected ? 'is-selected border-ember/30 bg-ember/5 shadow-sm' : 'bg-surface'}
+              ${isToday && !isSelected ? 'ring-1 ring-ember/25' : ''}"
+            aria-label="${formatDayLabel(ds)}${count ? ', ' + count + ' bookings' : ''}"
+            aria-pressed="${isSelected ? 'true' : 'false'}">
+            <span class="grid h-7 w-7 place-items-center rounded-full text-sm font-semibold
+              ${isToday ? 'bg-ember text-white' : 'text-charcoal'}
+              ${isSelected && !isToday ? 'bg-ember/10 text-ember' : ''}">${day}</span>
+            <div class="flex min-h-[1.25rem] flex-col items-center justify-end gap-1 pb-0.5">
+              ${count ? `<span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums
+                ${density === 'heavy' ? 'bg-ember/10 text-ember' : density === 'mid' ? 'bg-brass/15 text-brass-deep' : 'bg-sage-soft text-sage-deep'}">${count}</span>` : '<span class="h-4"></span>'}
+              <span class="flex h-1.5 items-center justify-center gap-0.5">${statusDots(list)}</span>
+            </div>
+          </button>`;
+      }
+
+      document.getElementById('cal-grid').innerHTML = heads + cells;
+      const focus = (selectedDay && selectedDay.startsWith(month))
+        ? selectedDay
+        : (byDay[todayStr] ? todayStr : (todayStr.startsWith(month) ? todayStr : null));
+      renderDayDetail(focus);
+      syncSelectionStyles();
+    }
+
+    RMS.mountStaffPage({
+      title: 'Reservations',
+      subtitle: 'Bookings for the dining room, terrace, and private suites.',
+      async render(body) {
+        body.innerHTML = `
+          <div class="mb-5 flex flex-wrap items-center gap-3">
+            <div class="flex items-center gap-1 rounded-2xl border border-line bg-parchment-light p-1">
+              <button id="btn-prev" type="button" class="icon-btn !border-0 !bg-transparent" aria-label="Previous month">‹</button>
+              <button id="btn-today" type="button" class="rounded-xl px-3 py-1.5 text-xs font-semibold text-charcoal-muted transition hover:bg-surface hover:text-charcoal">Today</button>
+              <button id="btn-next" type="button" class="icon-btn !border-0 !bg-transparent" aria-label="Next month">›</button>
+            </div>
+            <div class="min-w-0">
+              <h2 id="month-label" class="font-display text-2xl font-semibold tracking-tight"></h2>
+              <p id="month-stat" class="text-xs text-charcoal-muted"></p>
+            </div>
+            <div class="flex-1"></div>
+            <button id="btn-new" type="button" class="btn-primary">New reservation</button>
+          </div>
+
+          <div class="grid items-start gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+            <section class="overflow-hidden rounded-2xl border border-line bg-parchment-light/80 p-3 sm:p-4">
+              <div id="cal-grid" class="grid grid-cols-7 gap-1 sm:gap-1.5"></div>
+              <div class="mt-4 flex flex-wrap items-center gap-4 border-t border-line/80 px-1 pt-3 text-[11px] text-charcoal-muted">
+                <span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-sage"></span>Confirmed</span>
+                <span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-clay"></span>Pending</span>
+                <span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-brass"></span>Seated</span>
+                <span class="inline-flex items-center gap-1.5"><span class="rounded-full bg-ember/10 px-1.5 py-0.5 text-[10px] font-semibold text-ember">12</span>Busy day</span>
+              </div>
+            </section>
+
+            <section class="overflow-hidden rounded-2xl border border-line bg-surface xl:sticky xl:top-4">
+              <div class="flex items-start justify-between gap-3 border-b border-line bg-parchment/50 px-4 py-4">
+                <div class="min-w-0">
+                  <p class="text-[10px] font-semibold uppercase tracking-[0.14em] text-charcoal-muted">Day board</p>
+                  <h3 id="day-title" class="mt-1 font-display text-xl font-semibold leading-tight tracking-tight">Select a day</h3>
+                  <p id="day-meta" class="mt-1 text-xs text-charcoal-muted"></p>
+                </div>
+                <button id="btn-book-day" type="button" class="btn-sm shrink-0">Book</button>
+              </div>
+              <div id="day-list" class="max-h-[min(560px,70vh)] overflow-y-auto"></div>
+            </section>
+          </div>`;
+
+        document.getElementById('btn-prev').onclick = () => { cursor.setMonth(cursor.getMonth() - 1); drawCal(); };
+        document.getElementById('btn-next').onclick = () => { cursor.setMonth(cursor.getMonth() + 1); drawCal(); };
+        document.getElementById('btn-today').onclick = () => {
+          cursor = new Date();
+          cursor.setDate(1);
+          selectedDay = new Date().toISOString().slice(0, 10);
+          drawCal();
+        };
+        document.getElementById('btn-new').onclick = () => openNewReservation(selectedDay || new Date().toISOString().slice(0, 10));
+        document.getElementById('btn-book-day').onclick = () => openNewReservation(selectedDay || new Date().toISOString().slice(0, 10));
+        document.getElementById('cal-grid').addEventListener('click', (e) => {
+          const cell = e.target.closest('[data-day]');
+          if (!cell) return;
+          selectedDay = cell.dataset.day;
+          syncSelectionStyles();
+          renderDayDetail(selectedDay);
+        });
+        selectedDay = new Date().toISOString().slice(0, 10);
+        await drawCal();
+      },
+    });
+
+    document.getElementById('res-form').onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        const date = document.getElementById('r-date').value;
+        await RMS.api('/reservations', {
+          method: 'POST',
+          body: {
+            customer_name: document.getElementById('r-name').value,
+            customer_email: document.getElementById('r-email').value,
+            customer_phone: document.getElementById('r-phone').value,
+            party_size: Number(document.getElementById('r-party').value),
+            reservation_date: date,
+            reservation_time: document.getElementById('r-time').value,
+            notes: document.getElementById('r-notes').value,
+            status: document.getElementById('r-status').value,
+          },
+        });
+        RMS.closeModal('res-modal');
+        RMS.toast('Reservation booked for ' + document.getElementById('r-name').value);
+        selectedDay = date;
+        cursor = new Date(date + 'T12:00:00');
+        cursor.setDate(1);
+        drawCal();
+      } catch (ex) {
+        RMS.toast(ex.message, 'error');
+      }
+    };
+  </script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+version: "3.9"
+
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: oxford_rms
+    ports:
+      - "3307:3306"
+    volumes:
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - rms_mysql:/var/lib/mysql
+
+  ml-service:
+    build: ./ml-service
+    ports:
+      - "5001:5001"
+    environment:
+      ML_PORT: "5001"
+
+  # PHP gateway + frontend can run on XAMPP host; optional apache container:
+  # web:
+  #   image: php:8.2-apache
+  #   volumes:
+  #     - ./:/var/www/html
+  #   ports:
+  #     - "8080:80"
+  #   depends_on:
+  #     - mysql
+  #     - ml-service
+
+volumes:
+  rms_mysql:

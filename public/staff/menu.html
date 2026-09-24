@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Menu — Oxford Suites RMS</title>
+  <link rel="icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <link rel="shortcut icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <script src="../assets/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="../assets/css/tailwind.css" />
+  <link rel="stylesheet" href="../assets/css/app.css?v=17" />
+</head>
+<body>
+  <div id="app-root" data-active="menu" data-roles="admin,cashier,kitchen"></div>
+
+  <div id="menu-modal" class="rms-modal-backdrop hidden" role="dialog" aria-modal="true">
+    <div class="rms-modal max-w-lg">
+      <h2 id="menu-modal-title">Add dish</h2>
+      <form id="menu-form" class="mt-4 space-y-3">
+        <input type="hidden" id="item-id" />
+        <input type="hidden" id="item-image-url" />
+
+        <div class="flex items-center gap-4 rounded-2xl border border-line bg-parchment-light p-3">
+          <div id="item-image-preview" class="h-20 w-20 shrink-0 overflow-hidden rounded-full bg-gradient-to-br from-brass to-ember ring-1 ring-line"></div>
+          <div class="min-w-0 flex-1 space-y-2">
+            <label class="mb-0 block text-xs font-semibold text-charcoal-muted">Dish photo</label>
+            <input id="item-image-file" type="file" accept="image/jpeg,image/png,image/webp,image/gif" class="block w-full text-xs text-charcoal-muted file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-ember file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white" />
+            <input id="item-image-link" type="url" placeholder="Or paste image URL" class="field !py-2 text-xs" />
+            <button type="button" id="item-image-clear" class="btn-sm">Remove photo</button>
+          </div>
+        </div>
+
+        <div>
+          <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Name</label>
+          <input id="item-name" required class="field" />
+        </div>
+        <div>
+          <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Category</label>
+          <select id="item-cat" class="field"></select>
+        </div>
+        <div>
+          <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Price</label>
+          <input id="item-price" type="number" step="0.01" required class="field" />
+        </div>
+        <div>
+          <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Description</label>
+          <textarea id="item-desc" rows="3" class="field"></textarea>
+        </div>
+        <div class="flex gap-4 text-sm text-charcoal">
+          <label class="flex cursor-pointer items-center gap-2"><input type="checkbox" id="item-available" checked class="accent-ember" /> Available</label>
+          <label class="flex cursor-pointer items-center gap-2"><input type="checkbox" id="item-featured" class="accent-ember" /> Featured</label>
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" class="btn-secondary" data-modal-close>Cancel</button>
+          <button type="submit" class="btn-primary">Save dish</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="../assets/js/app.js?v=17"></script>
+  <script src="../assets/js/staff-shell.js?v=10"></script>
+  <script>
+    let categories = [], items = [];
+    let pendingFile = null;
+    RMS.bindModalDismiss('menu-modal');
+
+    function setPreview(url, letter) {
+      const box = document.getElementById('item-image-preview');
+      if (url) {
+        box.innerHTML = `<img src="${url}" alt="" class="h-full w-full object-cover" />`;
+      } else {
+        box.innerHTML = `<div class="grid h-full w-full place-items-center font-display text-2xl text-white">${letter || '?'}</div>`;
+      }
+    }
+
+    function resetImageFields() {
+      pendingFile = null;
+      document.getElementById('item-image-url').value = '';
+      document.getElementById('item-image-link').value = '';
+      document.getElementById('item-image-file').value = '';
+      setPreview('', '?');
+    }
+
+    document.getElementById('item-image-file').addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      pendingFile = file;
+      document.getElementById('item-image-link').value = '';
+      setPreview(URL.createObjectURL(file), '');
+    });
+
+    document.getElementById('item-image-link').addEventListener('input', (e) => {
+      const url = e.target.value.trim();
+      pendingFile = null;
+      document.getElementById('item-image-file').value = '';
+      document.getElementById('item-image-url').value = url;
+      setPreview(url, document.getElementById('item-name').value[0] || '?');
+    });
+
+    document.getElementById('item-image-clear').addEventListener('click', () => {
+      resetImageFields();
+    });
+
+    document.getElementById('item-name').addEventListener('input', (e) => {
+      if (!document.getElementById('item-image-url').value && !pendingFile) {
+        setPreview('', e.target.value[0] || '?');
+      }
+    });
+
+    RMS.mountStaffPage({
+      title: 'Menu',
+      subtitle: 'Compose the dining room catalogue — plates, prices, photos. Low stock auto-86s linked dishes.',
+      async render(body) {
+        body.innerHTML = `
+          <div class="mb-5 flex flex-wrap items-center gap-3">
+            <select id="filter-cat" class="field max-w-xs"></select>
+            <div class="flex-1"></div>
+            <button id="btn-add" type="button" class="btn-primary">Add dish</button>
+          </div>
+          <div id="menu-grid" class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"></div>`;
+
+        await reload();
+        document.getElementById('filter-cat').onchange = render;
+        document.getElementById('btn-add').onclick = () => {
+          document.getElementById('item-id').value = '';
+          document.getElementById('menu-form').reset();
+          document.getElementById('item-available').checked = true;
+          document.getElementById('menu-modal-title').textContent = 'Add dish';
+          resetImageFields();
+          RMS.openModal('menu-modal');
+        };
+        document.getElementById('menu-grid').onclick = async (e) => {
+          const edit = e.target.closest('[data-edit]');
+          const toggle = e.target.closest('[data-toggle]');
+          if (edit) {
+            const item = items.find((i) => String(i.id) === edit.dataset.edit);
+            document.getElementById('menu-modal-title').textContent = 'Edit dish';
+            document.getElementById('item-id').value = item.id;
+            document.getElementById('item-name').value = item.name;
+            document.getElementById('item-cat').value = item.category_id;
+            document.getElementById('item-price').value = item.price;
+            document.getElementById('item-desc').value = item.description || '';
+            document.getElementById('item-available').checked = item.is_available == 1;
+            document.getElementById('item-featured').checked = item.is_featured == 1;
+            pendingFile = null;
+            document.getElementById('item-image-file').value = '';
+            document.getElementById('item-image-url').value = item.image_url || '';
+            document.getElementById('item-image-link').value = item.image_url || '';
+            setPreview(item.image_url || '', item.name[0]);
+            RMS.openModal('menu-modal');
+          }
+          if (toggle) {
+            try {
+              const item = items.find((i) => String(i.id) === toggle.dataset.toggle);
+              const next = item.is_available == 1 ? 0 : 1;
+              await RMS.api(`/menu/items/${item.id}/availability`, {
+                method: 'PATCH',
+                body: { is_available: next },
+              });
+              RMS.toast(next ? item.name + ' restored to menu' : item.name + " marked 86'd");
+              await reload();
+            } catch (ex) {
+              RMS.toast(ex.message, 'error');
+            }
+          }
+        };
+      },
+    });
+
+    async function reload() {
+      const [catRes, itemRes] = await Promise.all([RMS.api('/menu/categories'), RMS.api('/menu/items')]);
+      categories = catRes.data;
+      items = itemRes.data;
+      document.getElementById('filter-cat').innerHTML =
+        '<option value="">All categories</option>' + categories.map((c) => `<option value="${c.id}">${c.name}</option>`).join('');
+      document.getElementById('item-cat').innerHTML = categories.map((c) => `<option value="${c.id}">${c.name}</option>`).join('');
+      render();
+    }
+
+    function render() {
+      const cat = document.getElementById('filter-cat').value;
+      const list = items.filter((i) => !cat || String(i.category_id) === cat);
+      document.getElementById('menu-grid').innerHTML = list.map((i) => `
+        <article class="grid grid-cols-[88px_1fr] items-center gap-3.5 rounded-2xl border border-line bg-parchment-light p-4 transition hover:shadow-suite">
+          ${RMS.dishImage(i, 'h-[88px] w-[88px]')}
+          <div>
+            <h3 class="font-display text-base font-semibold">${i.name}</h3>
+            <p class="text-xs text-charcoal-muted">${i.category_name || ''} · ${
+              i.is_available == 1
+                ? 'Available'
+                : (i.stock_ok == 0 ? '86’d · low stock' : "86'd")
+            }${i.is_featured == 1 ? ' · Featured' : ''}</p>
+            <div class="mt-1.5 text-sm font-bold text-ember">${RMS.money(i.price)}</div>
+            <div class="mt-2 flex gap-2">
+              <button class="btn-sm" data-edit="${i.id}">Edit</button>
+              <button class="btn-sm" data-toggle="${i.id}" ${i.is_available != 1 && i.stock_ok == 0 ? 'disabled title="Restock inventory first"' : ''}>${i.is_available == 1 ? '86' : 'Restore'}</button>
+            </div>
+          </div>
+        </article>`).join('');
+    }
+
+    document.getElementById('menu-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('item-id').value;
+      let imageUrl = document.getElementById('item-image-url').value.trim() || null;
+      try {
+        if (pendingFile) {
+          imageUrl = await RMS.uploadMenuImage(pendingFile);
+        }
+        const body = {
+          name: document.getElementById('item-name').value,
+          category_id: Number(document.getElementById('item-cat').value),
+          price: Number(document.getElementById('item-price').value),
+          description: document.getElementById('item-desc').value,
+          image_url: imageUrl,
+          is_available: document.getElementById('item-available').checked ? 1 : 0,
+          is_featured: document.getElementById('item-featured').checked ? 1 : 0,
+        };
+        const existing = id ? items.find((item) => String(item.id) === String(id)) : null;
+        if (existing && Math.abs(Number(existing.price) - body.price) > 0.0001) {
+          body.manager_pin = await RMS.requestManagerPin('change this menu price');
+          if (!body.manager_pin) return;
+        }
+        if (id) {
+          await RMS.api(`/menu/items/${id}`, { method: 'PUT', body });
+          RMS.toast('Dish updated successfully');
+        } else {
+          await RMS.api('/menu/items', { method: 'POST', body });
+          RMS.toast('Dish added to the menu');
+        }
+        RMS.closeModal('menu-modal');
+        await reload();
+      } catch (ex) {
+        RMS.toast(ex.message, 'error');
+      }
+    };
+  </script>
+</body>
+</html>

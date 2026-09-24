@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kitchen KOT — Oxford Suites RMS</title>
+  <link rel="icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <link rel="shortcut icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <script src="../assets/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="../assets/css/tailwind.css" />
+  <link rel="stylesheet" href="../assets/css/app.css?v=17" />
+</head>
+<body>
+  <div id="app-root" data-active="kitchen" data-roles="admin,kitchen"></div>
+  <script src="../assets/js/app.js?v=17"></script>
+  <script src="../assets/js/staff-shell.js?v=10"></script>
+  <script>
+    let knownIds = new Set();
+    let station = 'all';
+    let muted = localStorage.getItem('oxford-kot-mute') === '1';
+
+    window.bump = async function (id, status) {
+      try {
+        await RMS.api(`/kitchen/tickets/${id}/status`, { method: 'PATCH', body: { status } });
+        const labels = { in_progress: 'Ticket started', ready: 'Ticket marked ready', bumped: 'Ticket bumped / served' };
+        RMS.toast(labels[status] || 'Ticket updated');
+        await loadTickets();
+      } catch (ex) {
+        RMS.toast(ex.message, 'error');
+      }
+    };
+
+    function beep() {
+      if (muted) return;
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'sine';
+        o.frequency.value = 880;
+        g.gain.value = 0.08;
+        o.connect(g);
+        g.connect(ctx.destination);
+        o.start();
+        setTimeout(() => { o.stop(); ctx.close(); }, 220);
+      } catch (_) {}
+    }
+
+    const accent = { new: 'border-t-clay', in_progress: 'border-t-brass', ready: 'border-t-sage' };
+
+    function ticketCard(t) {
+      const elapsed = Math.max(0, Number(t.elapsed_seconds || 0));
+      const elapsedLabel = Math.floor(elapsed / 60) + ':' + String(elapsed % 60).padStart(2, '0');
+      const overdue = Number(t.is_overdue) === 1;
+      const warning = Number(t.is_warning) === 1;
+      const remain = Math.max(0, Number(t.remaining_seconds || 0));
+      const remainLabel = Math.floor(remain / 60) + ':' + String(remain % 60).padStart(2, '0');
+      const borderCls = overdue ? 'border-ember bg-ember/5' : (warning ? 'border-clay bg-clay-soft/40' : 'border-line');
+      return `
+        <article class="flex flex-col rounded-2xl border ${borderCls} border-t-[3px] ${accent[t.status] || 'border-t-line'} bg-parchment-light shadow-suite transition hover:-translate-y-0.5 hover:shadow-lift animate-ticket-in">
+          <div class="border-b border-dashed border-line px-4 pb-3 pt-4">
+            <div class="flex items-start justify-between gap-2">
+              <div>
+                <h3 class="font-display text-xl font-semibold text-charcoal">${t.table_label || '—'}</h3>
+                <p class="mt-0.5 text-[11px] font-medium text-charcoal-muted">${t.order_number}</p>
+              </div>
+              ${RMS.statusBadge(t.status)}
+            </div>
+            <div class="mt-2 flex flex-wrap gap-1">${(t.stations || []).map((s) => `<span class="rounded-full bg-parchment-deep px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-charcoal-muted">${s}</span>`).join('')}</div>
+            <div class="mt-3 flex items-center justify-between text-xs ${overdue ? 'font-bold text-ember' : (warning ? 'font-semibold text-clay-deep' : 'text-charcoal-muted')}">
+              <span>⏱ ${elapsedLabel} elapsed</span>
+              <span>${overdue ? 'OVERDUE' : (warning ? 'SLA warn · ' + remainLabel + ' left' : 'Countdown ' + remainLabel)}</span>
+            </div>
+          </div>
+          <ul class="flex-1 px-4 py-2">
+            ${(t.items || []).map((i) => `
+              <li class="border-b border-dotted border-line/70 py-2 text-sm last:border-0">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="font-medium text-charcoal">${i.quantity}× ${i.item_name}</span>
+                  <span class="text-[11px] capitalize text-charcoal-muted">${i.status}</span>
+                </div>
+                ${i.allergens ? `<p class="mt-1 text-[10px] font-semibold text-ember">⚠ Allergens: ${i.allergens}</p>` : ''}
+                ${i.notes ? (typeof RMS.formatMods === 'function' ? RMS.formatMods(i.notes) : `<p class="mt-1 text-[11px] text-ember">⚙ ${i.notes}</p>`) : ''}
+              </li>`).join('') || '<li class="py-3 text-sm text-charcoal-muted">No items</li>'}
+          </ul>
+          ${t.order_notes ? `<div class="mx-4 mb-2 rounded-lg bg-ember-soft px-3 py-2 text-[11px] font-semibold text-ember">⚠ ${t.order_notes}</div>` : ''}
+          <div class="mt-auto flex gap-2 border-t border-line px-4 py-3">
+            ${t.status === 'new' ? `<button type="button" class="btn-brass flex-1 !rounded-xl !py-2 !text-sm" onclick="bump(${t.id},'in_progress')">Start</button>` : ''}
+            ${t.status === 'in_progress' ? `<button type="button" class="btn-primary flex-1 !py-2 !text-sm" onclick="bump(${t.id},'ready')">Mark ready</button>` : ''}
+            ${t.status === 'ready' ? `<button type="button" class="btn-secondary flex-1 !py-2 !text-sm" onclick="bump(${t.id},'bumped')">Bump / served</button>` : ''}
+          </div>
+        </article>`;
+    }
+
+    function column(title, tone, tickets, emptyHint) {
+      const bar = { clay: 'bg-clay', brass: 'bg-brass', sage: 'bg-sage' }[tone] || 'bg-line';
+      return `
+        <div class="flex min-h-[420px] flex-col rounded-2xl border border-line bg-surface/60">
+          <div class="flex items-center justify-between border-b border-line px-4 py-3">
+            <div class="flex items-center gap-2">
+              <span class="h-2 w-2 rounded-full ${bar}"></span>
+              <h3 class="text-sm font-semibold text-charcoal">${title}</h3>
+            </div>
+            <span class="rounded-full bg-parchment-deep px-2.5 py-0.5 text-[11px] font-semibold text-charcoal-muted">${tickets.length}</span>
+          </div>
+          <div class="flex flex-1 flex-col gap-3 overflow-y-auto p-3">
+            ${tickets.length ? tickets.map(ticketCard).join('') : `
+              <div class="flex flex-1 items-center justify-center rounded-xl border border-dashed border-line px-4 py-10 text-center text-sm text-charcoal-muted">${emptyHint}</div>`}
+          </div>
+        </div>`;
+    }
+
+    async function loadTickets() {
+      const q = station && station !== 'all' ? '?station=' + encodeURIComponent(station) : '';
+      const res = await RMS.api('/kitchen/tickets' + q);
+      const board = document.getElementById('kot-board');
+      const countEl = document.getElementById('kot-count');
+      const tickets = res.data || [];
+      const ids = new Set(tickets.map((t) => t.id));
+      let hasNew = false;
+      ids.forEach((id) => { if (!knownIds.has(id)) hasNew = true; });
+      if (knownIds.size && hasNew) beep();
+      knownIds = ids;
+      const overdue = tickets.filter((t) => Number(t.is_overdue) === 1).length;
+      if (countEl) {
+        countEl.textContent = tickets.length + (tickets.length === 1 ? ' open ticket' : ' open tickets') +
+          (overdue ? ' · ' + overdue + ' overdue' : '');
+        countEl.classList.toggle('text-ember', overdue > 0);
+      }
+      const groups = {
+        new: tickets.filter((t) => t.status === 'new'),
+        in_progress: tickets.filter((t) => t.status === 'in_progress'),
+        ready: tickets.filter((t) => t.status === 'ready'),
+      };
+      board.innerHTML = [
+        column('New', 'clay', groups.new, 'No new tickets'),
+        column('In progress', 'brass', groups.in_progress, 'Nothing on the pass'),
+        column('Ready', 'sage', groups.ready, 'Nothing waiting to bump'),
+      ].join('');
+    }
+
+    RMS.mountStaffPage({
+      title: 'Kitchen (KOT)',
+      subtitle: 'Timers, overdue alerts, station filters, and sound on new tickets.',
+      async render(body) {
+        body.innerHTML = `
+          <div class="mb-5 flex flex-wrap items-center gap-3">
+            <div class="header-chip">
+              <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-sage"></span>
+              <span id="kot-count">Loading…</span>
+            </div>
+            <div class="flex flex-wrap gap-1" id="station-filters">
+              ${['all','grill','drinks','dessert','general'].map((s) =>
+                `<button type="button" data-station="${s}" class="btn-sm ${station === s ? '!bg-ember !text-white' : ''}">${s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}</button>`
+              ).join('')}
+            </div>
+            <button type="button" id="mute-toggle" class="btn-secondary !text-xs">${muted ? 'Unmute alerts' : 'Mute alerts'}</button>
+            <div class="flex-1"></div>
+            <button type="button" id="kot-refresh" class="btn-primary !text-xs">Refresh now</button>
+          </div>
+          <div id="kot-board" class="grid flex-1 gap-4 lg:grid-cols-3"></div>`;
+
+        document.getElementById('kot-refresh').onclick = loadTickets;
+        document.getElementById('mute-toggle').onclick = () => {
+          muted = !muted;
+          localStorage.setItem('oxford-kot-mute', muted ? '1' : '0');
+          document.getElementById('mute-toggle').textContent = muted ? 'Unmute alerts' : 'Mute alerts';
+        };
+        document.getElementById('station-filters').onclick = (e) => {
+          const btn = e.target.closest('[data-station]');
+          if (!btn) return;
+          station = btn.dataset.station;
+          [...document.getElementById('station-filters').children].forEach((b) => {
+            b.classList.toggle('!bg-ember', b.dataset.station === station);
+            b.classList.toggle('!text-white', b.dataset.station === station);
+          });
+          loadTickets();
+        };
+        await loadTickets();
+        setInterval(loadTickets, 8000);
+        window.addEventListener('rms:live', () => { loadTickets(); });
+      },
+    });
+  </script>
+</body>
+</html>

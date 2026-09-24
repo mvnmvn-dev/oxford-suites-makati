@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Guest portal — Oxford Suites</title>
+  <link rel="icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <link rel="shortcut icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <script src="../assets/js/theme-boot.js"></script>
+  <script>try { if (!localStorage.getItem('oxford-rms-theme')) localStorage.setItem('oxford-rms-theme', 'light'); } catch (e) {}</script>
+  <link rel="stylesheet" href="../assets/css/tailwind.css" />
+  <link rel="stylesheet" href="../assets/css/app.css?v=17" />
+</head>
+<body class="m-0">
+  <div id="app-root" data-active="home"></div>
+  <script src="../assets/js/app.js?v=4"></script>
+  <script src="../assets/js/customer-shell.js"></script>
+  <script>
+    RMS.mountCustomerPage({
+      active: 'home',
+      title: 'Welcome to the suite',
+      subtitle: 'Your evening at Oxford Suites Makati — menu, reservations, and the spaces that make dining feel composed.',
+      async render(body, user) {
+        let orders = [];
+        let reservations = [];
+        let loyalty = null;
+        try {
+          const o = await RMS.api('/orders?mine=1');
+          orders = o.data || [];
+        } catch (_) {}
+        try {
+          const r = await RMS.api('/reservations?mine=1');
+          reservations = r.data || [];
+        } catch (_) {}
+        let loyaltyPack = null;
+        try {
+          loyaltyPack = (await RMS.api('/loyalty')).data;
+          loyalty = loyaltyPack?.account || null;
+        } catch (_) {}
+
+        let favorites = [];
+        try {
+          favorites = (await RMS.api('/menu/favorites')).data || [];
+        } catch (_) {}
+
+        const nextRes = reservations.find((r) => !['cancelled', 'completed', 'no_show'].includes(r.status));
+        const openOrder = orders.find((o) => !['paid', 'cancelled'].includes(o.status));
+
+        const recentItems = [];
+        const seen = new Set();
+        for (const o of orders) {
+          for (const line of (o.items || [])) {
+            const mid = Number(line.menu_item_id || 0);
+            if (!mid || seen.has(mid)) continue;
+            seen.add(mid);
+            recentItems.push({
+              menu_item_id: mid,
+              name: line.item_name || line.name || 'Dish',
+              price: line.unit_price || 0,
+              source: 'recent',
+            });
+            if (recentItems.length >= 6) break;
+          }
+          if (recentItems.length >= 6) break;
+        }
+        const favCards = favorites.slice(0, 6).map((f) => ({
+          menu_item_id: Number(f.id),
+          name: f.name,
+          price: f.price || 0,
+          source: 'favorite',
+        }));
+        const reorderCards = [...favCards];
+        for (const r of recentItems) {
+          if (!reorderCards.some((c) => c.menu_item_id === r.menu_item_id)) reorderCards.push(r);
+        }
+        const loyaltyTx = (loyaltyPack?.transactions || []).slice(0, 8);
+        const loyaltyVouchers = (loyaltyPack?.vouchers || []).slice(0, 5);
+
+        const hour = new Date().getHours();
+        const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+        const init = RMS.initials(user.name);
+
+        body.innerHTML = `
+          <div class="mb-6 overflow-hidden rounded-2xl border border-[#D9CFC2] bg-[#FFFCFA]">
+            <div class="flex flex-wrap items-center gap-4 p-5 sm:p-6">
+              <div class="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[#C89A4B] to-[#A8342A] text-sm font-bold text-white">${init}</div>
+              <div class="min-w-0 flex-1">
+                <p class="text-sm text-[#6B635C]">${greeting}</p>
+                <h2 class="font-display text-2xl font-semibold text-[#241E1C]">${user.name}</h2>
+                <p class="mt-0.5 truncate text-xs text-[#6B635C]">${user.email || ''}${user.phone ? ' · ' + user.phone : ''}</p>
+              </div>
+            </div>
+            <div class="grid grid-cols-3 divide-x divide-[#E8DFD0] border-t border-[#E8DFD0] text-center">
+              <div class="px-3 py-3">
+                <div class="font-display text-lg font-semibold text-[#241E1C]">${loyalty?.points || 0}</div>
+                <div class="text-[10px] font-bold uppercase tracking-wide text-[#6B635C]">Points</div>
+              </div>
+              <div class="px-3 py-3">
+                <div class="font-display text-lg font-semibold text-[#241E1C]">${reservations.filter((r) => !['cancelled','completed','no_show'].includes(r.status)).length}</div>
+                <div class="text-[10px] font-bold uppercase tracking-wide text-[#6B635C]">Bookings</div>
+              </div>
+              <div class="px-3 py-3">
+                <div class="font-display text-lg font-semibold text-[#241E1C]">${orders.length}</div>
+                <div class="text-[10px] font-bold uppercase tracking-wide text-[#6B635C]">Orders</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-6 overflow-hidden rounded-2xl border border-[#D9CFC2] bg-gradient-to-br from-[#2A1C18] to-[#1C1412] p-6 text-white sm:p-7">
+            <div class="flex flex-wrap items-end justify-between gap-4">
+              <div class="max-w-xl">
+                <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-[#E2C48A]">This week at the suite</p>
+                <h2 class="mt-2 font-display text-2xl font-semibold sm:text-3xl">Makati Spritz hour</h2>
+                <p class="mt-2 text-sm leading-relaxed text-white/75">
+                  4–6 PM at the Bar &amp; Lounge — complimentary canapés with every two cocktails. Mention your guest account to your captain.
+                </p>
+              </div>
+              <a href="${RMS.customerMenuHref()}" class="rounded-xl bg-[#C89A4B] px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-[#1C1412]">See bar menu</a>
+            </div>
+          </div>
+
+          <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <a href="${RMS.customerMenuHref()}" class="rounded-2xl border border-[#D9CFC2] bg-[#FFFCFA] p-5 transition hover:border-[#A8342A]">
+              <p class="text-[11px] font-bold uppercase tracking-[0.14em] text-[#A67C3A]">Order</p>
+              <h3 class="mt-2 font-display text-lg font-semibold">Digital menu</h3>
+              <p class="mt-1 text-xs text-[#6B635C]">Table-side dining from your phone.</p>
+            </a>
+            <a href="reserve.html" class="rounded-2xl border border-[#D9CFC2] bg-[#FFFCFA] p-5 transition hover:border-[#A8342A]">
+              <p class="text-[11px] font-bold uppercase tracking-[0.14em] text-[#A67C3A]">Book</p>
+              <h3 class="mt-2 font-display text-lg font-semibold">Reserve</h3>
+              <p class="mt-1 text-xs text-[#6B635C]">Main room, terrace, or Oak Suite.</p>
+            </a>
+            <a href="suites.html" class="rounded-2xl border border-[#D9CFC2] bg-[#FFFCFA] p-5 transition hover:border-[#A8342A]">
+              <p class="text-[11px] font-bold uppercase tracking-[0.14em] text-[#A67C3A]">Explore</p>
+              <h3 class="mt-2 font-display text-lg font-semibold">The Suites</h3>
+              <p class="mt-1 text-xs text-[#6B635C]">Spaces, hours, and how we dine.</p>
+            </a>
+            <a href="orders.html" class="rounded-2xl border border-[#D9CFC2] bg-[#FFFCFA] p-5 transition hover:border-[#A8342A]">
+              <p class="text-[11px] font-bold uppercase tracking-[0.14em] text-[#A67C3A]">Track</p>
+              <h3 class="mt-2 font-display text-lg font-semibold">My orders</h3>
+              <p class="mt-1 text-xs text-[#6B635C]">Kitchen tickets linked to you.</p>
+            </a>
+          </div>
+
+          <div id="order-again" class="mt-4 rounded-2xl border border-[#D9CFC2] bg-[#FFFCFA] p-5">
+            <p class="text-[11px] font-bold uppercase tracking-[0.14em] text-[#A67C3A]">Order again</p>
+            <h3 class="mt-1 font-display text-xl font-semibold">Recent &amp; favorites</h3>
+            <div id="reorder-list" class="mt-3 grid gap-2 sm:grid-cols-2">
+              ${reorderCards.length ? reorderCards.slice(0, 8).map((c) => `
+                <div class="flex items-center justify-between gap-3 rounded-xl border border-[#E8DFD0] bg-[#F6F1E9] px-3 py-2.5">
+                  <div class="min-w-0">
+                    <div class="truncate font-semibold text-[#241E1C]">${String(c.name).replace(/</g, '&lt;')}</div>
+                    <div class="text-[11px] text-[#6B635C]">${RMS.money(c.price)} · ${c.source === 'favorite' ? 'Favorite' : 'Ordered before'}</div>
+                  </div>
+                  <button type="button" class="btn-sm shrink-0" data-reorder-id="${c.menu_item_id}" data-reorder-name="${String(c.name).replace(/"/g, '&quot;')}" data-reorder-price="${c.price}">Add</button>
+                </div>`).join('') : `<p class="col-span-full text-sm text-[#6B635C]">No favorites or past dishes yet. <a href="${RMS.customerMenuHref()}" class="font-semibold text-[#A8342A]">Browse the menu →</a></p>`}
+            </div>
+            ${reorderCards.length ? `<button type="button" id="btn-reorder-all" class="btn-sm mt-3">Order favorites again</button>` : ''}
+          </div>
+
+          <div id="loyalty" class="mt-4 scroll-mt-24 rounded-2xl border border-[#D9CFC2] bg-[#FFFCFA] p-5">
+            <p class="text-[11px] font-bold uppercase tracking-[0.14em] text-[#A67C3A]">Loyalty rewards</p>
+            <div class="mt-1 flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h3 class="font-display text-2xl font-semibold">${loyalty?.points || 0} points</h3>
+                <p class="mt-1 text-xs text-[#6B635C]">100 pts = ₱50 · 80 pts = drink · 150 pts = dessert</p>
+              </div>
+            </div>
+            <div class="mt-3 flex flex-wrap gap-2">
+              <button type="button" class="btn-sm" data-redeem="credit">Redeem ₱50 (100 pts)</button>
+              <button type="button" class="btn-sm" data-redeem="drink">Free drink (80 pts)</button>
+              <button type="button" class="btn-sm" data-redeem="dessert">Free dessert (150 pts)</button>
+            </div>
+            <p id="voucher-msg" class="mt-2 text-xs text-[#6B635C]"></p>
+            <div class="mt-4 grid gap-3 sm:grid-cols-2">
+              <div>
+                <p class="text-[11px] font-bold uppercase tracking-wide text-[#6B635C]">Point history</p>
+                <div class="mt-2 max-h-36 space-y-1 overflow-y-auto text-xs">
+                  ${loyaltyTx.length ? loyaltyTx.map((t) => `
+                    <div class="flex justify-between gap-2 border-b border-[#E8DFD0] py-1.5">
+                      <span class="min-w-0 truncate text-[#6B635C]">${t.reason || t.type || 'Activity'}</span>
+                      <span class="shrink-0 font-semibold ${Number(t.points) >= 0 ? 'text-[#6B7F5B]' : 'text-[#A8342A]'}">${Number(t.points) >= 0 ? '+' : ''}${t.points}</span>
+                    </div>`).join('') : '<p class="text-[#6B635C]">No point activity yet.</p>'}
+                </div>
+              </div>
+              <div>
+                <p class="text-[11px] font-bold uppercase tracking-wide text-[#6B635C]">Vouchers</p>
+                <div class="mt-2 max-h-36 space-y-1 overflow-y-auto text-xs">
+                  ${loyaltyVouchers.length ? loyaltyVouchers.map((v) => `
+                    <div class="flex justify-between gap-2 border-b border-[#E8DFD0] py-1.5">
+                      <span class="font-mono font-semibold text-[#241E1C]">${v.code}</span>
+                      <span class="text-[#6B635C]">₱${Number(v.discount_value || v.value || 0).toFixed(0)} · ${v.status || (v.used_at ? 'used' : 'open')}</span>
+                    </div>`).join('') : '<p class="text-[#6B635C]">No vouchers yet.</p>'}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-8 grid gap-4 lg:grid-cols-2">
+            <div class="rounded-2xl border border-[#D9CFC2] bg-[#FFFCFA] p-5">
+              <div class="flex items-center justify-between gap-2">
+                <h3 class="font-display text-lg font-semibold">Upcoming reservation</h3>
+                <button type="button" id="btn-new-res" class="btn-sm">New</button>
+              </div>
+              ${nextRes ? `
+                <div class="mt-4 rounded-xl border border-[#E8DFD0] bg-[#F6F1E9] p-4">
+                  <div class="font-display text-xl font-semibold">${nextRes.reservation_date} · ${(nextRes.reservation_time || '').slice(0, 5)}</div>
+                  <p class="mt-1 text-sm text-[#6B635C]">Party of ${nextRes.party_size}${nextRes.table_number ? ' · Table ' + nextRes.table_number : ''}</p>
+                  <div class="mt-3 flex flex-wrap items-center gap-2">
+                    ${RMS.statusBadge(nextRes.status)}
+                    ${['pending','confirmed'].includes(nextRes.status) ? `<button type="button" class="btn-sm" data-cancel-res="${nextRes.id}">Cancel</button>` : ''}
+                  </div>
+                </div>` : `
+                <p class="mt-4 text-sm text-[#6B635C]">No upcoming bookings.</p>
+                <a href="reserve.html" class="mt-3 inline-block text-sm font-semibold text-[#A8342A]">Make a reservation →</a>`}
+            </div>
+            <div class="rounded-2xl border border-[#D9CFC2] bg-[#FFFCFA] p-5">
+              <h3 class="font-display text-lg font-semibold">Latest order</h3>
+              ${openOrder || orders[0] ? (() => {
+                const o = openOrder || orders[0];
+                return `
+                <div class="mt-4 rounded-xl border border-[#E8DFD0] bg-[#F6F1E9] p-4">
+                  <div class="font-display text-xl font-semibold">${o.order_number}</div>
+                  <p class="mt-1 text-sm text-[#6B635C]">${RMS.money(o.total)}${o.table_number ? ' · Table ' + o.table_number : ''}</p>
+                  <div class="mt-2">${RMS.statusBadge(o.status)}</div>
+                  ${!['paid','cancelled','served'].includes(o.status) ? `<a href="track.html?id=${o.id}" class="mt-3 mr-3 inline-block text-sm font-semibold text-[#A8342A]">Live track →</a>` : ''}
+                  <a href="orders.html" class="mt-3 inline-block text-sm font-semibold text-[#A8342A]">View all →</a>
+                </div>`;
+              })() : `
+                <p class="mt-4 text-sm text-[#6B635C]">No orders yet.</p>
+                <a href="${RMS.customerMenuHref()}" class="mt-3 inline-block text-sm font-semibold text-[#A8342A]">Browse menu →</a>`}
+            </div>
+          </div>
+
+          <div id="cancel-modal" class="rms-modal-backdrop hidden" role="dialog" aria-modal="true">
+            <div class="rms-modal max-w-sm">
+              <h2 class="font-display text-xl font-semibold">Cancel reservation?</h2>
+              <p class="mt-2 text-sm text-charcoal-muted">This notifies the suite desk. You can book again anytime.</p>
+              <input type="hidden" id="cancel-res-id" />
+              <div class="mt-5 flex justify-end gap-2">
+                <button type="button" class="btn-secondary" data-modal-close>Keep it</button>
+                <button type="button" id="confirm-cancel-res" class="btn-primary">Yes, cancel</button>
+              </div>
+            </div>
+          </div>`;
+
+        document.getElementById('btn-new-res')?.addEventListener('click', () => { location.href = 'reserve.html'; });
+        RMS.bindModalDismiss('cancel-modal');
+
+        const pushReorder = (items) => {
+          try {
+            sessionStorage.setItem('oxford-reorder', JSON.stringify(items));
+          } catch (_) {}
+          location.href = RMS.customerMenuHref();
+        };
+        body.querySelectorAll('[data-reorder-id]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            pushReorder([{
+              menu_item_id: Number(btn.dataset.reorderId),
+              name: btn.dataset.reorderName,
+              price: Number(btn.dataset.reorderPrice) || 0,
+              qty: 1,
+            }]);
+          });
+        });
+        document.getElementById('btn-reorder-all')?.addEventListener('click', () => {
+          const items = favCards.length
+            ? favCards.map((c) => ({ menu_item_id: c.menu_item_id, name: c.name, price: c.price, qty: 1 }))
+            : reorderCards.slice(0, 4).map((c) => ({ menu_item_id: c.menu_item_id, name: c.name, price: c.price, qty: 1 }));
+          if (!items.length) return;
+          pushReorder(items);
+        });
+
+        if (location.hash === '#loyalty') {
+          document.getElementById('loyalty')?.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        body.querySelectorAll('[data-redeem]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            try {
+              const res = await RMS.api('/loyalty/redeem', { method: 'POST', body: { reward: btn.dataset.redeem } });
+              const msg = document.getElementById('voucher-msg');
+              msg.className = 'mt-2 text-xs font-semibold text-[#6B7F5B]';
+              msg.textContent = 'Voucher ' + res.data.voucher_code + ' · ₱' + Number(res.data.discount_value).toFixed(0) + ' — give this code to the cashier.';
+              RMS.toast('Voucher created: ' + res.data.voucher_code);
+              location.reload();
+            } catch (ex) {
+              RMS.toast(ex.message, 'error');
+            }
+          });
+        });
+
+        body.querySelector('[data-cancel-res]')?.addEventListener('click', (e) => {
+          document.getElementById('cancel-res-id').value = e.currentTarget.dataset.cancelRes;
+          RMS.openModal('cancel-modal');
+        });
+        document.getElementById('confirm-cancel-res')?.addEventListener('click', async () => {
+          const id = document.getElementById('cancel-res-id').value;
+          try {
+            await RMS.api(`/reservations/${id}/status`, { method: 'PATCH', body: { status: 'cancelled' } });
+            RMS.closeModal('cancel-modal');
+            RMS.toast('Reservation cancelled');
+            location.reload();
+          } catch (ex) {
+            RMS.toast(ex.message, 'error');
+          }
+        });
+      },
+    });
+  </script>
+</body>
+</html>

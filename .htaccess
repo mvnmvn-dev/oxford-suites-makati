@@ -1,0 +1,10 @@
+RewriteEngine On
+RewriteBase /oxford-rms/
+
+# API Gateway
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^api(?:/(.*))?$ gateway/index.php [QSA,L]
+
+# Pretty redirect root
+RewriteRule ^$ public/login.html [L]

@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Inventory — Oxford Suites RMS</title>
+  <link rel="icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <link rel="shortcut icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <script src="../assets/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="../assets/css/tailwind.css" />
+  <link rel="stylesheet" href="../assets/css/app.css?v=17" />
+</head>
+<body>
+  <div id="app-root" data-active="inventory" data-roles="admin,kitchen"></div>
+
+  <div id="inv-modal" class="rms-modal-backdrop hidden" role="dialog" aria-modal="true">
+    <div class="rms-modal">
+      <h2>Adjust stock</h2>
+      <p id="inv-summary" class="mt-1 text-sm text-charcoal-muted"></p>
+      <form id="inv-form" class="mt-4 space-y-3">
+        <input type="hidden" id="inv-id" />
+        <div>
+          <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Change quantity</label>
+          <input id="inv-delta" type="number" step="0.01" required class="field" value="5" />
+          <p class="mt-1 text-[11px] text-charcoal-muted">Positive values restock. Orders deduct stock automatically — use this for deliveries and waste only.</p>
+        </div>
+        <div>
+          <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Reason</label>
+          <input id="inv-reason" class="field" value="Manual restock/adjust" />
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" class="btn-secondary" data-modal-close>Cancel</button>
+          <button type="submit" class="btn-primary">Save adjustment</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="../assets/js/app.js?v=17"></script>
+  <script src="../assets/js/staff-shell.js?v=10"></script>
+  <script>
+    let inventory = [];
+    RMS.bindModalDismiss('inv-modal');
+
+    async function refresh() {
+      const inv = await RMS.api('/inventory');
+      inventory = inv.data;
+      const body = document.getElementById('inv-body');
+      if (!body) return;
+      body.innerHTML = inventory.map((i) => `
+        <tr class="border-b border-line/60 transition hover:bg-parchment/60">
+          <td class="px-3 py-3 text-sm">
+            <strong>${i.name}</strong>
+            <div class="text-xs text-charcoal-muted">${i.category} · ${i.unit}${i.expires_at ? ' · exp ' + i.expires_at : ''}</div>
+            <div class="mt-1 text-[11px] text-charcoal-muted">${i.used_by ? 'Menu: ' + i.used_by : 'Not linked to a dish'}</div>
+          </td>
+          <td class="px-3 py-3 text-sm tabular-nums">${Number(i.quantity).toFixed(2)}</td>
+          <td class="px-3 py-3 text-sm tabular-nums">${Number(i.reorder_level).toFixed(2)}</td>
+          <td class="px-3 py-3">${i.is_low == 1 ? RMS.statusBadge('low') : RMS.statusBadge('available')}</td>
+          <td class="px-3 py-3">
+            <button type="button" class="btn-sm" data-adjust="${i.id}">Restock</button>
+          </td>
+        </tr>`).join('') || '<tr><td colspan="5" class="px-3 py-10 text-center text-sm text-charcoal-muted">No inventory items.</td></tr>';
+
+      const wasteSel = document.getElementById('waste-item');
+      if (wasteSel) {
+        wasteSel.innerHTML = inventory.map((i) => `<option value="${i.id}">${i.name} (${i.unit})</option>`).join('');
+      }
+
+      const wasteList = document.getElementById('waste-list');
+      if (wasteList) {
+        try {
+          const w = await RMS.api('/inventory/waste');
+          wasteList.innerHTML = (w.data || []).slice(0, 8).map((r) => `
+            <tr class="border-b border-line/60">
+              <td class="px-3 py-2.5 text-sm">${r.name}</td>
+              <td class="px-3 py-2.5 text-sm tabular-nums">${r.quantity}</td>
+              <td class="px-3 py-2.5 text-xs text-charcoal-muted">${r.reason}</td>
+            </tr>`).join('') || '<tr><td colspan="3" class="px-3 py-6 text-center text-sm text-charcoal-muted">No waste logged yet.</td></tr>';
+        } catch (_) {
+          wasteList.innerHTML = '<tr><td colspan="3" class="px-3 py-6 text-center text-sm text-charcoal-muted">Could not load waste log.</td></tr>';
+        }
+      }
+
+      const forecast = document.getElementById('forecast-body');
+      if (forecast) {
+        try {
+          const fc = await RMS.api('/ml/forecast?days=7');
+          forecast.innerHTML = (fc.data.forecast || []).slice(0, 8).map((f) => `
+            <tr class="border-b border-line/60 transition hover:bg-parchment/60">
+              <td class="px-3 py-3 text-sm font-semibold">${f.name}</td>
+              <td class="px-3 py-3 text-sm tabular-nums">${f.avg_daily_use}/${f.unit || 'u'}</td>
+              <td class="px-3 py-3 text-sm tabular-nums">${f.projection?.slice(-1)[0]?.projected_qty ?? '—'}</td>
+              <td class="px-3 py-3">${f.suggested_reorder ? RMS.statusBadge('low') : '<span class="text-xs text-charcoal-muted">OK</span>'}</td>
+            </tr>`).join('') || '<tr><td colspan="4" class="px-3 py-6 text-center text-sm text-charcoal-muted">No forecast data.</td></tr>';
+        } catch (e) {
+          forecast.innerHTML = '<tr><td colspan="4" class="px-3 py-6 text-center text-sm text-charcoal-muted">Forecast unavailable.</td></tr>';
+        }
+      }
+    }
+
+    RMS.mountStaffPage({
+      title: 'Inventory',
+      subtitle: 'Stock drops automatically when orders are placed. Restock here to put linked dishes back on the menu.',
+      async render(body) {
+        body.innerHTML = `
+          <div class="mb-4 flex flex-wrap items-center gap-2">
+            <p class="text-sm text-charcoal-muted">Stock levels update when kitchen tickets and POS orders consume ingredients.</p>
+            <div class="flex-1"></div>
+          </div>
+
+          <div class="mb-5 overflow-x-auto rounded-2xl border border-line">
+            <table class="w-full min-w-[640px] text-left">
+              <thead class="bg-parchment/80 text-[11px] uppercase tracking-wide text-charcoal-muted">
+                <tr>
+                  <th class="px-3 py-3 font-semibold">Item</th>
+                  <th class="px-3 py-3 font-semibold">On hand</th>
+                  <th class="px-3 py-3 font-semibold">Reorder</th>
+                  <th class="px-3 py-3 font-semibold">Status</th>
+                  <th class="px-3 py-3 font-semibold">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="inv-body"></tbody>
+            </table>
+          </div>
+
+          <div class="mb-3">
+            <h3 class="font-display text-lg font-semibold">7-day forecast</h3>
+            <p class="text-xs text-charcoal-muted">TensorFlow time-series (or PHP fallback)</p>
+          </div>
+          <div class="mb-5 overflow-x-auto rounded-2xl border border-line">
+            <table class="w-full min-w-[560px] text-left">
+              <thead class="bg-parchment/80 text-[11px] uppercase tracking-wide text-charcoal-muted">
+                <tr>
+                  <th class="px-3 py-3 font-semibold">Item</th>
+                  <th class="px-3 py-3 font-semibold">Avg use</th>
+                  <th class="px-3 py-3 font-semibold">Day 7</th>
+                  <th class="px-3 py-3 font-semibold">Signal</th>
+                </tr>
+              </thead>
+              <tbody id="forecast-body"></tbody>
+            </table>
+          </div>
+
+          <div class="mb-3">
+            <h3 class="font-display text-lg font-semibold">Log waste</h3>
+          </div>
+          <div class="overflow-hidden rounded-2xl border border-line">
+            <form id="waste-form" class="grid gap-3 border-b border-line bg-parchment/40 p-4 sm:grid-cols-2 lg:grid-cols-5">
+              <div class="lg:col-span-1">
+                <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Item</label>
+                <select id="waste-item" class="field" required></select>
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Quantity</label>
+                <input id="waste-qty" class="field" type="number" min="0.01" step="0.01" placeholder="0.00" required />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Reason</label>
+                <input id="waste-reason" class="field" placeholder="Spoilage, trim…" required />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Expiry</label>
+                <input id="waste-expires" class="field" type="date" />
+              </div>
+              <div class="flex items-end">
+                <button type="submit" class="btn-primary w-full">Record waste</button>
+              </div>
+            </form>
+            <div class="overflow-x-auto">
+              <table class="w-full min-w-[480px] text-left">
+                <thead class="bg-parchment/80 text-[11px] uppercase tracking-wide text-charcoal-muted">
+                  <tr>
+                    <th class="px-3 py-3 font-semibold">Item</th>
+                    <th class="px-3 py-3 font-semibold">Qty</th>
+                    <th class="px-3 py-3 font-semibold">Reason</th>
+                  </tr>
+                </thead>
+                <tbody id="waste-list"></tbody>
+              </table>
+            </div>
+          </div>`;
+
+        document.getElementById('inv-body').onclick = (e) => {
+          const btn = e.target.closest('[data-adjust]');
+          if (!btn) return;
+          const item = inventory.find((i) => String(i.id) === btn.dataset.adjust);
+          if (!item) return;
+          document.getElementById('inv-id').value = item.id;
+          document.getElementById('inv-delta').value = '5';
+          document.getElementById('inv-reason').value = 'Manual restock/adjust';
+          document.getElementById('inv-summary').textContent =
+            item.name + ' · on hand ' + Number(item.quantity).toFixed(2) + ' ' + item.unit;
+          RMS.openModal('inv-modal');
+        };
+
+        document.getElementById('waste-form').addEventListener('submit', async (e) => {
+          e.preventDefault();
+          try {
+            const managerPin = await RMS.requestManagerPin('record inventory waste');
+            if (!managerPin) return;
+            await RMS.api('/inventory/waste', {
+              method: 'POST',
+              body: {
+                inventory_item_id: Number(document.getElementById('waste-item').value),
+                quantity: Number(document.getElementById('waste-qty').value),
+                reason: document.getElementById('waste-reason').value,
+                expires_at: document.getElementById('waste-expires').value || null,
+                manager_pin: managerPin,
+              },
+            });
+            RMS.toast('Waste logged');
+            e.target.reset();
+            await refresh();
+          } catch (ex) {
+            RMS.toast(ex.message, 'error');
+          }
+        });
+
+        await refresh();
+      },
+    });
+
+    document.getElementById('inv-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const delta = Number(document.getElementById('inv-delta').value);
+      try {
+        const managerPin = await RMS.requestManagerPin('adjust inventory');
+        if (!managerPin) return;
+        await RMS.api(`/inventory/${document.getElementById('inv-id').value}`, {
+          method: 'PATCH',
+          body: {
+            adjust_qty: delta,
+            reason: document.getElementById('inv-reason').value || 'Manual restock/adjust',
+            manager_pin: managerPin,
+          },
+        });
+        RMS.closeModal('inv-modal');
+        RMS.toast(delta >= 0 ? 'Stock increased by ' + delta : 'Stock reduced by ' + Math.abs(delta));
+        await refresh();
+      } catch (ex) {
+        RMS.toast(ex.message, 'error');
+      }
+    };
+  </script>
+</body>
+</html>

@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Orders — Oxford Suites RMS</title>
+  <link rel="icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <link rel="shortcut icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <script src="../assets/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="../assets/css/tailwind.css" />
+  <link rel="stylesheet" href="../assets/css/app.css?v=17" />
+</head>
+<body>
+  <div id="app-root" data-active="orders" data-roles="admin,cashier,kitchen"></div>
+
+  <div id="order-detail-modal" class="rms-modal-backdrop hidden" role="dialog" aria-modal="true">
+    <div class="rms-modal max-w-lg">
+      <h2 id="od-title" class="font-display text-xl font-semibold">Order</h2>
+      <p id="od-meta" class="mt-1 text-sm text-charcoal-muted"></p>
+      <div id="od-items" class="mt-4 space-y-3"></div>
+      <div class="mt-4 flex justify-end">
+        <button type="button" class="btn-secondary" data-modal-close>Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../assets/js/app.js?v=17"></script>
+  <script src="../assets/js/staff-shell.js?v=10"></script>
+  <script>
+    RMS.bindModalDismiss('order-detail-modal');
+
+    async function loadOrders() {
+      const status = document.getElementById('status-filter')?.value || '';
+      const res = await RMS.api('/orders' + (status ? '?status=' + status : ''));
+      document.getElementById('orders-body').innerHTML = res.data.map((o) => {
+        const canCancel = !['cancelled', 'paid'].includes(o.status);
+        return `
+        <tr class="border-b border-line/60 transition hover:bg-parchment/60">
+          <td class="px-3 py-3"><strong class="text-sm">${o.order_number}</strong></td>
+          <td class="px-3 py-3 text-sm">${o.table_number || '—'}</td>
+          <td class="px-3 py-3 text-sm">${o.customer_name}</td>
+          <td class="px-3 py-3 text-sm capitalize">${o.source}</td>
+          <td class="px-3 py-3 text-sm font-semibold">${RMS.money(o.total)}</td>
+          <td class="px-3 py-3">${RMS.statusBadge(o.status)}</td>
+          <td class="px-3 py-3 text-xs text-charcoal-muted">${o.updated_at || o.created_at}</td>
+          <td class="px-3 py-3">
+            <div class="flex flex-wrap gap-1.5">
+              <button type="button" class="btn-sm" data-view="${o.id}">Details</button>
+              ${canCancel ? `<button type="button" class="btn-sm" data-cancel="${o.id}">Cancel</button>` : ''}
+            </div>
+          </td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="8" class="px-3 py-10 text-center text-sm text-charcoal-muted">No orders yet.</td></tr>';
+    }
+
+    async function openDetail(id) {
+      const res = await RMS.api('/orders/' + id);
+      const o = res.data;
+      document.getElementById('od-title').textContent = o.order_number;
+      document.getElementById('od-meta').textContent =
+        (o.table_number ? 'Table ' + o.table_number + ' · ' : '') +
+        (o.customer_name || 'Guest') + ' · ' + RMS.money(o.total) + ' · ' + o.status;
+      document.getElementById('od-items').innerHTML = (o.items || []).map((i) => `
+        <div class="rounded-xl border border-line bg-parchment/50 px-3.5 py-3">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="font-semibold text-charcoal">${i.quantity}× ${i.item_name}</div>
+              ${i.notes ? RMS.formatMods(i.notes) : '<p class="mt-1 text-[11px] text-charcoal-muted">No customizations</p>'}
+            </div>
+            <div class="shrink-0 text-sm font-semibold">${RMS.money((i.unit_price || 0) * i.quantity)}</div>
+          </div>
+        </div>`).join('') || '<p class="text-sm text-charcoal-muted">No line items.</p>';
+      RMS.openModal('order-detail-modal');
+    }
+
+    RMS.mountStaffPage({
+      title: 'Orders',
+      subtitle: 'Line items include guest customizations for kitchen and service.',
+      async render(body) {
+        body.innerHTML = `
+          <div class="mb-4">
+            <select id="status-filter" class="cursor-pointer rounded-xl border border-line bg-parchment-light px-3 py-2.5 text-sm outline-none focus:border-ember focus:ring-2 focus:ring-ember/20">
+              <option value="">All statuses</option>
+              <option>pending</option><option>confirmed</option><option>preparing</option>
+              <option>ready</option><option>served</option><option>paid</option><option>cancelled</option>
+            </select>
+          </div>
+          <div class="overflow-x-auto rounded-2xl border border-line">
+            <table class="w-full min-w-[780px] text-left">
+              <thead class="bg-parchment/80 text-[11px] uppercase tracking-wide text-charcoal-muted">
+                <tr>
+                  <th class="px-3 py-3 font-semibold">Order</th>
+                  <th class="px-3 py-3 font-semibold">Table</th>
+                  <th class="px-3 py-3 font-semibold">Guest</th>
+                  <th class="px-3 py-3 font-semibold">Source</th>
+                  <th class="px-3 py-3 font-semibold">Total</th>
+                  <th class="px-3 py-3 font-semibold">Status</th>
+                  <th class="px-3 py-3 font-semibold">Updated</th>
+                  <th class="px-3 py-3 font-semibold">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="orders-body"></tbody>
+            </table>
+          </div>`;
+        document.getElementById('status-filter').onchange = () => loadOrders();
+        document.getElementById('orders-body').onclick = async (e) => {
+          const view = e.target.closest('[data-view]');
+          if (view) {
+            try { await openDetail(view.dataset.view); } catch (ex) { RMS.toast(ex.message, 'error'); }
+            return;
+          }
+          const btn = e.target.closest('[data-cancel]');
+          if (!btn) return;
+          if (!await RMS.confirm('Cancel this order and restore inventory?', { title: 'Cancel order', confirmLabel: 'Cancel order' })) return;
+          const managerPin = await RMS.requestManagerPin('void this order');
+          if (!managerPin) return;
+          try {
+            await RMS.api(`/orders/${btn.dataset.cancel}/status`, {
+              method: 'PATCH',
+              body: { status: 'cancelled', manager_pin: managerPin },
+            });
+            RMS.toast('Order cancelled — stock restored');
+            await loadOrders();
+          } catch (ex) {
+            RMS.toast(ex.message, 'error');
+          }
+        };
+        await loadOrders();
+        setInterval(loadOrders, 12000);
+        window.addEventListener('rms:live', () => { loadOrders(); });
+      },
+    });
+  </script>
+</body>
+</html>

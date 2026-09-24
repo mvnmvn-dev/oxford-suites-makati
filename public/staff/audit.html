@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Audit & Activity — Oxford Suites RMS</title>
+  <link rel="icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <link rel="shortcut icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <script src="../assets/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="../assets/css/tailwind.css" />
+  <link rel="stylesheet" href="../assets/css/app.css?v=17" />
+</head>
+<body>
+  <div id="app-root" data-active="audit" data-roles="admin"></div>
+  <div id="manager-pin-modal" class="rms-modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="manager-pin-title">
+    <div class="rms-modal max-w-sm">
+      <div class="flex items-start gap-3">
+        <div class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-ember/10 text-ember">⌁</div>
+        <div><h2 id="manager-pin-title">Set manager PIN</h2><p class="mt-1 text-sm text-charcoal-muted">Choose a 4–6 digit PIN for sensitive approvals.</p></div>
+      </div>
+      <div class="rms-pin-display mt-5 rounded-2xl border border-line bg-parchment/60 px-4 py-3 text-center">
+        <div id="manager-pin-value" class="min-h-8 text-xl font-semibold tracking-[0.28em] text-ember">Enter PIN</div>
+        <div id="manager-pin-dots" class="mt-2 flex min-h-3 items-center justify-center gap-2"></div>
+        <p class="mt-2 text-[10px] uppercase tracking-[0.14em] text-charcoal-muted">4–6 digits</p>
+      </div>
+      <div class="mt-4 grid grid-cols-3 gap-2">
+        <button type="button" class="rms-pin-key grid min-h-12 place-items-center rounded-xl border border-line bg-surface text-lg font-semibold" data-manager-pin-key="1">1</button>
+        <button type="button" class="rms-pin-key grid min-h-12 place-items-center rounded-xl border border-line bg-surface text-lg font-semibold" data-manager-pin-key="2">2</button>
+        <button type="button" class="rms-pin-key grid min-h-12 place-items-center rounded-xl border border-line bg-surface text-lg font-semibold" data-manager-pin-key="3">3</button>
+        <button type="button" class="rms-pin-key grid min-h-12 place-items-center rounded-xl border border-line bg-surface text-lg font-semibold" data-manager-pin-key="4">4</button>
+        <button type="button" class="rms-pin-key grid min-h-12 place-items-center rounded-xl border border-line bg-surface text-lg font-semibold" data-manager-pin-key="5">5</button>
+        <button type="button" class="rms-pin-key grid min-h-12 place-items-center rounded-xl border border-line bg-surface text-lg font-semibold" data-manager-pin-key="6">6</button>
+        <button type="button" class="rms-pin-key grid min-h-12 place-items-center rounded-xl border border-line bg-surface text-lg font-semibold" data-manager-pin-key="7">7</button>
+        <button type="button" class="rms-pin-key grid min-h-12 place-items-center rounded-xl border border-line bg-surface text-lg font-semibold" data-manager-pin-key="8">8</button>
+        <button type="button" class="rms-pin-key grid min-h-12 place-items-center rounded-xl border border-line bg-surface text-lg font-semibold" data-manager-pin-key="9">9</button>
+        <button type="button" class="rms-pin-key grid min-h-12 place-items-center rounded-xl border border-line bg-surface font-semibold text-ember" data-manager-pin-key="clear">Clear</button>
+        <button type="button" class="rms-pin-key grid min-h-12 place-items-center rounded-xl border border-line bg-surface text-lg font-semibold" data-manager-pin-key="0">0</button>
+        <button type="button" class="rms-pin-key grid min-h-12 place-items-center rounded-xl border border-line bg-surface text-lg font-semibold" data-manager-pin-key="delete" aria-label="Delete last digit">⌫</button>
+      </div>
+      <div class="mt-5 flex justify-end gap-2">
+        <button type="button" id="manager-pin-cancel" class="btn-secondary">Cancel</button>
+        <button type="button" id="manager-pin-save" class="btn-primary" disabled>Save PIN</button>
+      </div>
+    </div>
+  </div>
+  <script src="../assets/js/app.js?v=17"></script>
+  <script src="../assets/js/staff-shell.js?v=10"></script>
+  <script>
+    RMS.mountStaffPage({
+      title: 'Audit & Activity',
+      subtitle: 'Security trail and live restaurant activity feed for managers.',
+      async render(body) {
+        body.innerHTML = `
+          <div class="mb-5 rounded-2xl border border-line bg-parchment-light p-4">
+            <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div><p class="text-[10px] font-semibold uppercase tracking-[0.14em] text-charcoal-muted">Audit explorer</p><p class="mt-1 text-xs text-charcoal-muted">Filter events, then export the current result for review.</p></div>
+              <div class="flex gap-2"><button type="button" id="btn-clear-filters" class="btn-secondary !text-xs">Clear</button><button type="button" id="btn-export-logs" class="btn-secondary !text-xs">Export CSV</button></div>
+            </div>
+            <div class="grid gap-3 sm:grid-cols-4">
+            <input id="f-date" type="date" class="field" aria-label="Filter by date" />
+            <input id="f-user" class="field" placeholder="User name or id" aria-label="Filter by user" />
+            <select id="f-module" class="field" aria-label="Filter by module">
+              <option value="">All modules</option>
+              <option>auth</option><option>menu</option><option>orders</option>
+              <option>inventory</option><option>payments</option><option>reservations</option>
+              <option>promotions</option><option>demo</option>
+            </select>
+            <button type="button" id="btn-filter" class="btn-primary">Apply filters</button>
+            </div>
+          </div>
+          <div class="grid gap-5 lg:grid-cols-2">
+            <section class="rounded-2xl border border-line bg-parchment-light p-5">
+              <h3 class="font-display text-lg font-semibold">Audit logs</h3>
+              <div id="audit-list" class="mt-3 max-h-[520px] space-y-2 overflow-y-auto text-sm"></div>
+            </section>
+            <section class="rounded-2xl border border-line bg-parchment-light p-5">
+              <h3 class="font-display text-lg font-semibold">Activity timeline</h3>
+              <div id="activity-list" class="mt-3 max-h-[520px] space-y-2 overflow-y-auto text-sm"></div>
+            </section>
+          </div>`;
+          body.insertAdjacentHTML('afterbegin', `<section class="mb-5 overflow-hidden rounded-2xl border border-line bg-parchment-light"><div class="flex flex-wrap items-center justify-between gap-4 border-b border-line bg-gradient-to-r from-ember/10 via-transparent to-brass/10 p-5"><div><div class="flex items-center gap-2"><span class="grid h-9 w-9 place-items-center rounded-xl bg-ember text-white">⌁</span><h3 class="font-display text-xl font-semibold">Security center</h3></div><p class="mt-2 max-w-2xl text-xs leading-relaxed text-charcoal-muted">Monitor authentication health, manager approvals, trusted devices, and suspicious activity from one operational view.</p></div><div class="flex flex-wrap items-center gap-2"><span id="pin-status" class="rounded-full border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-charcoal-muted">Checking PIN…</span><button type="button" id="btn-refresh-security" class="btn-secondary !text-xs">Refresh</button><button type="button" id="set-manager-pin" class="btn-primary !text-xs">Set manager PIN</button></div></div><div id="security-widgets" class="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-7"></div><div class="flex items-center justify-between border-t border-line px-5 py-3"><p class="text-[11px] text-charcoal-muted">Recent security events</p><p id="security-refreshed" class="text-[11px] text-charcoal-muted"></p></div><div id="security-feed" class="grid gap-2 p-5 pt-0 md:grid-cols-2"></div></section>`);
+
+        let auditRows = [];
+        async function loadSecurity() {
+          const res = await RMS.api('/audit/security');
+          const w = res.data.widgets || {};
+          const labels = [['successful_logins_today','Logins today','text-sage-deep'],['failed_login_attempts','Failed attempts','text-ember'],['locked_accounts','Locked accounts','text-ember'],['trusted_devices','Trusted devices','text-brass-deep'],['manager_pin_approvals','PIN approvals','text-sage-deep'],['suspicious_activities','Suspicious activity','text-ember'],['manager_pin_configured','PIN configured','text-brass-deep']];
+          document.getElementById('security-widgets').innerHTML = labels.map(([key, label, tone]) => `<div class="group rounded-2xl border border-line bg-surface p-4 transition hover:-translate-y-0.5 hover:shadow-suite"><div class="flex items-center justify-between gap-2"><div class="text-[10px] font-semibold uppercase tracking-wide text-charcoal-muted">${label}</div><span class="h-2 w-2 rounded-full ${key === 'suspicious_activities' || key === 'failed_login_attempts' || key === 'locked_accounts' ? 'bg-ember' : 'bg-sage'}"></span></div><div class="mt-2 font-display text-3xl font-semibold ${tone}">${w[key] || 0}</div></div>`).join('');
+          const pinStatus = document.getElementById('pin-status');
+          const configured = Number(w.manager_pin_configured || 0) > 0;
+          pinStatus.textContent = configured ? 'Manager PIN active' : 'Manager PIN not set';
+          pinStatus.className = configured ? 'rounded-full border border-sage/30 bg-sage-soft px-3 py-1.5 text-xs font-semibold text-sage-deep' : 'rounded-full border border-ember/30 bg-ember/10 px-3 py-1.5 text-xs font-semibold text-ember';
+          document.getElementById('security-refreshed').textContent = res.data.refreshed_at ? 'Updated ' + new Date(res.data.refreshed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+          document.getElementById('security-feed').innerHTML = (res.data.feed || []).map((r) => `<div class="rounded-2xl border border-line bg-surface px-4 py-3 transition hover:border-ember/30"><div class="flex items-start justify-between gap-3"><div class="flex items-center gap-2"><span class="h-2 w-2 rounded-full ${r.severity === 'critical' || r.severity === 'warning' ? 'bg-ember' : 'bg-sage'}"></span><strong class="capitalize">${r.event_type.replaceAll('_',' ')}</strong></div><span class="shrink-0 text-[10px] text-charcoal-muted">${r.created_at}</span></div><p class="mt-1 pl-4 text-xs text-charcoal-muted">${r.severity} · ${r.user_name || 'system'}${r.details ? ' · ' + r.details : ''}</p></div>`).join('') || '<p class="text-sm text-charcoal-muted">No security events yet.</p>';
+        }
+
+        RMS.bindModalDismiss('manager-pin-modal');
+        let managerPinValue = '';
+        const pinModal = document.getElementById('manager-pin-modal');
+        const pinValue = document.getElementById('manager-pin-value');
+        const pinDots = document.getElementById('manager-pin-dots');
+        const pinSave = document.getElementById('manager-pin-save');
+        const syncManagerPin = () => {
+          pinValue.textContent = managerPinValue ? '•'.repeat(managerPinValue.length) : 'Enter PIN';
+          pinDots.innerHTML = Array.from({ length: 6 }, (_, i) => `<span class="h-3 w-3 rounded-full border ${i < managerPinValue.length ? 'border-ember bg-ember' : 'border-charcoal-muted/50'}"></span>`).join('');
+          pinSave.disabled = managerPinValue.length < 4;
+        };
+        pinModal.querySelectorAll('[data-manager-pin-key]').forEach((button) => {
+          button.onclick = (event) => {
+            event.preventDefault();
+            const key = button.dataset.managerPinKey;
+            if (/^\d$/.test(key) && managerPinValue.length < 6) managerPinValue += key;
+            else if (key === 'clear') managerPinValue = '';
+            else if (key === 'delete') managerPinValue = managerPinValue.slice(0, -1);
+            syncManagerPin();
+          };
+        });
+        document.getElementById('manager-pin-cancel').onclick = () => RMS.closeModal('manager-pin-modal');
+        pinSave.onclick = async () => {
+          if (managerPinValue.length < 4) return;
+          pinSave.disabled = true;
+          pinSave.textContent = 'Saving…';
+          try {
+            await RMS.api('/auth/manager-pin', { method: 'POST', body: { pin: managerPinValue } });
+            RMS.closeModal('manager-pin-modal');
+            RMS.toast('Manager PIN saved');
+            await loadSecurity();
+          } catch (e) {
+            RMS.toast(e.message, 'error');
+          } finally {
+            pinSave.disabled = managerPinValue.length < 4;
+            pinSave.textContent = 'Save PIN';
+          }
+        };
+        document.addEventListener('keydown', (event) => {
+          if (pinModal.classList.contains('hidden')) return;
+          if (/^\d$/.test(event.key) && managerPinValue.length < 6) managerPinValue += event.key;
+          else if (event.key === 'Backspace') managerPinValue = managerPinValue.slice(0, -1);
+          else if (event.key === 'Escape') RMS.closeModal('manager-pin-modal');
+          else if (event.key === 'Enter' && managerPinValue.length >= 4) pinSave.click();
+          syncManagerPin();
+        });
+        document.getElementById('set-manager-pin').onclick = () => {
+          managerPinValue = '';
+          syncManagerPin();
+          RMS.openModal('manager-pin-modal');
+        };
+
+        async function loadLogs() {
+          const q = new URLSearchParams();
+          if (document.getElementById('f-date').value) q.set('date', document.getElementById('f-date').value);
+          if (document.getElementById('f-user').value) q.set('user', document.getElementById('f-user').value);
+          if (document.getElementById('f-module').value) q.set('module', document.getElementById('f-module').value);
+          const res = await RMS.api('/audit/logs?' + q.toString());
+          const rows = res.data || [];
+          auditRows = rows;
+          document.getElementById('audit-list').innerHTML = rows.length ? rows.map((r) => `
+            <div class="rounded-xl border border-line bg-surface px-3 py-2">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <strong>${r.action}</strong>
+                <span class="text-[10px] text-charcoal-muted">${r.created_at}</span>
+              </div>
+              <p class="mt-0.5 text-xs text-charcoal-muted">${r.module} · ${r.user_name || 'system'} (${r.role || '—'})</p>
+              ${r.details ? `<p class="mt-1 text-xs">${r.details}</p>` : ''}
+            </div>`).join('') : '<div class="empty-state"><strong>No audit entries</strong>Actions will appear as staff use the system.</div>';
+        }
+
+        async function loadActivity() {
+          const res = await RMS.api('/audit/activity');
+          const rows = res.data || [];
+          document.getElementById('activity-list').innerHTML = rows.length ? rows.map((r) => `
+            <div class="flex gap-3 rounded-xl border border-line bg-surface px-3 py-2">
+              <span class="mt-1 h-2 w-2 shrink-0 rounded-full bg-ember"></span>
+              <div>
+                <p class="text-sm">${r.text}</p>
+                <p class="mt-0.5 text-[10px] uppercase tracking-wide text-charcoal-muted">${r.type} · ${r.at}</p>
+              </div>
+            </div>`).join('') : '<div class="empty-state"><strong>No activity yet</strong>Orders and payments will stream here.</div>';
+        }
+
+        document.getElementById('btn-filter').onclick = loadLogs;
+        document.getElementById('btn-refresh-security').onclick = async () => { const button = document.getElementById('btn-refresh-security'); button.disabled = true; button.textContent = 'Refreshing…'; try { await loadSecurity(); RMS.toast('Security center refreshed'); } catch (e) { RMS.toast(e.message, 'error'); } finally { button.disabled = false; button.textContent = 'Refresh'; } };
+        document.getElementById('btn-clear-filters').onclick = () => { document.getElementById('f-date').value = ''; document.getElementById('f-user').value = ''; document.getElementById('f-module').value = ''; loadLogs(); };
+        document.getElementById('btn-export-logs').onclick = () => { if (!auditRows.length) { RMS.toast('No audit rows to export', 'error'); return; } const csv = ['Date,Action,Module,User,Role,Details', ...auditRows.map((r) => [r.created_at, r.action, r.module, r.user_name || 'system', r.role || '', r.details || ''].map((v) => `"${String(v).replaceAll('"', '""')}"`).join(','))].join('\n'); const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); link.download = 'oxford-audit-' + new Date().toISOString().slice(0, 10) + '.csv'; link.click(); URL.revokeObjectURL(link.href); RMS.toast('Audit CSV exported'); };
+        await Promise.all([loadLogs(), loadActivity(), loadSecurity()]);
+        setInterval(loadActivity, 15000);
+      },
+    });
+  </script>
+</body>
+</html>

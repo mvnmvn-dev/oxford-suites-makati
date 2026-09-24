@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sign in — Oxford Suites RMS</title>
+  <link rel="icon" href="favicon.ico?v=2" type="image/x-icon" />
+  <link rel="shortcut icon" href="favicon.ico?v=2" type="image/x-icon" />
+  <script src="assets/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="assets/css/tailwind.css" />
+  <link rel="stylesheet" href="assets/css/app.css?v=17" />
+</head>
+<body class="m-0 min-h-screen font-sans text-charcoal antialiased">
+  <div class="grid min-h-screen w-full lg:grid-cols-2">
+    <!-- Brand / hero — full column -->
+    <section class="bg-login-hero relative flex min-h-[42vh] flex-col justify-between px-8 py-10 text-white sm:px-12 lg:min-h-screen lg:px-16 lg:py-14 animate-fade-in">
+      <div class="flex items-center gap-3">
+        <img src="assets/img/oxford-logo.jpg" alt="Oxford Suites" class="brand-logo brand-logo-lg" />
+        <div>
+          <div class="font-display text-xl font-semibold leading-tight">Oxford Suites</div>
+          <div class="text-[11px] uppercase tracking-[0.14em] text-brass-soft">Makati</div>
+        </div>
+      </div>
+
+      <div class="max-w-lg py-10 lg:py-0">
+        <p class="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-brass-soft">Restaurant of Suite</p>
+        <h1 class="font-display text-4xl font-semibold leading-[1.05] tracking-tight sm:text-5xl lg:text-[3.4rem]">
+          Dining operations, composed for the suite.
+        </h1>
+        <p class="mt-5 text-base leading-relaxed text-white/80">
+          Menus, reservations, kitchen tickets, and the floor — one workspace with a dining-room identity.
+        </p>
+      </div>
+
+      <p class="hidden text-xs text-white/45 lg:block">© Oxford Suites Makati</p>
+    </section>
+
+    <!-- Sign-in — full column, centered card -->
+    <section class="bg-suite-page relative flex min-h-[58vh] items-center justify-center px-6 py-12 lg:min-h-screen">
+      <form id="login-form" class="w-full max-w-[420px] animate-fade-up rounded-2xl border border-line bg-surface p-8 shadow-suite">
+        <div class="mb-6 flex items-center gap-3 lg:hidden">
+          <img src="assets/img/oxford-logo.jpg" alt="Oxford Suites" class="brand-logo" />
+          <span class="font-display text-lg font-semibold">Oxford Suites</span>
+        </div>
+        <h2 class="font-display text-[26px] font-semibold tracking-tight">Welcome back</h2>
+        <p class="mt-1.5 text-sm text-charcoal-muted">Sign in to the restaurant management suite.</p>
+
+        <label for="email" class="mt-6 mb-1.5 block text-xs font-semibold text-charcoal-muted">Email</label>
+        <input id="email" type="email" required autocomplete="username" placeholder="Email address"
+          class="field" />
+
+        <label for="password" class="mt-4 mb-1.5 block text-xs font-semibold text-charcoal-muted">Password</label>
+        <div class="relative">
+          <input id="password" type="password" required autocomplete="current-password" placeholder="Password"
+            class="field pr-11" />
+          <button type="button" id="toggle-password" class="absolute inset-y-0 right-0 grid w-11 place-items-center text-charcoal-muted transition hover:text-charcoal" aria-label="Show password" title="Show password">
+            <svg id="eye-open" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/>
+            </svg>
+            <svg id="eye-closed" class="hidden h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a21.8 21.8 0 0 1 5.06-5.94"/><path d="M9.9 4.24A10.94 10.94 0 0 1 12 5c7 0 11 7 11 7a21.9 21.9 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>
+            </svg>
+          </button>
+        </div>
+
+        <p id="login-error" class="mt-3 hidden text-sm text-ember"></p>
+
+        <button type="submit" class="btn-primary mt-6 w-full py-3">Sign in</button>
+        <p class="mt-5 text-center text-sm text-charcoal-muted">
+          Dining as a guest?
+          <a href="customer/login.html" class="font-semibold text-ember hover:underline">Guest portal</a>
+        </p>
+      </form>
+    </section>
+  </div>
+
+  <script src="assets/js/app.js?v=4"></script>
+  <script>
+    const pwd = document.getElementById('password');
+    const toggle = document.getElementById('toggle-password');
+    const eyeOpen = document.getElementById('eye-open');
+    const eyeClosed = document.getElementById('eye-closed');
+    toggle.addEventListener('click', () => {
+      const show = pwd.type === 'password';
+      pwd.type = show ? 'text' : 'password';
+      eyeOpen.classList.toggle('hidden', show);
+      eyeClosed.classList.toggle('hidden', !show);
+      toggle.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+      toggle.title = show ? 'Hide password' : 'Show password';
+    });
+
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const err = document.getElementById('login-error');
+      err.classList.add('hidden');
+      try {
+        const res = await RMS.api('/auth/login', {
+          method: 'POST',
+          body: {
+            email: document.getElementById('email').value,
+            password: document.getElementById('password').value,
+          },
+        });
+        if (res.data?.user) RMS.cacheAuthUser?.(res.data.user);
+        const role = res.data?.user?.role || res.data?.role;
+        if (role === 'customer') {
+          location.href = 'customer/';
+          return;
+        }
+        const home = RMS.homeForRole ? RMS.homeForRole(role) : 'dashboard.html';
+        location.href = 'staff/' + home;
+      } catch (ex) {
+        err.textContent = ex.message;
+        err.classList.remove('hidden');
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dashboard — Oxford Suites RMS</title>
+  <link rel="icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <link rel="shortcut icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <script src="../assets/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="../assets/css/tailwind.css" />
+  <link rel="stylesheet" href="../assets/css/app.css?v=17" />
+</head>
+<body>
+  <div id="app-root" data-active="dashboard" data-roles="admin,cashier,kitchen"></div>
+  <script src="../assets/js/app.js?v=17"></script>
+  <script src="../assets/js/staff-shell.js?v=10"></script>
+  <script>
+    RMS.mountStaffPage({
+      title: 'Dining floor overview',
+      subtitle: 'Tonight’s pulse across tables, kitchen tickets, and the suite dining room.',
+      async render(body) {
+        const analytics = await RMS.api('/analytics');
+        const k = analytics.data.kpis;
+        const maxRev = Math.max(...analytics.data.sales_trend.map((d) => Number(d.revenue) || 0), 1);
+
+        body.innerHTML = `
+          <div class="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            ${kpi('Orders today', k.orders_today, 'Across QR & POS', 'ember')}
+            ${kpi('Revenue today', RMS.money(k.revenue_today), 'Incl. open tickets', 'brass', true)}
+            ${kpi('Occupied tables', k.occupied_tables, 'On the floor now', 'sage')}
+            ${kpi('Kitchen queue', k.kitchen_queue, k.low_stock_items + ' low-stock items', 'clay')}
+          </div>
+          <div class="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+            <div class="rounded-2xl border border-line bg-parchment-light p-5">
+              <div class="flex items-start justify-between gap-3"><div><h3 class="font-display text-lg font-semibold">Revenue trend</h3><p class="mt-1 text-xs text-charcoal-muted">${k.scope === 'system-wide' ? 'System-wide view across all users and modules' : 'Your user-based activity view'}</p></div><span class="rounded-full bg-brass/20 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-brass-deep">${k.scope || 'user-based'}</span></div>
+              <div class="mt-4 flex h-36 items-end gap-1.5" id="trend-chart">
+                ${analytics.data.sales_trend.map((d) => {
+                  const h = Math.round((Number(d.revenue) / maxRev) * 100);
+                  return `<div class="group relative flex-1 rounded-t bg-gradient-to-t from-ember to-brass opacity-90 transition hover:opacity-100" style="height:${h}%" title="${RMS.money(d.revenue)}">
+                    <span class="absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] text-charcoal-muted">${String(d.day).slice(5)}</span>
+                  </div>`;
+                }).join('')}
+              </div>
+            </div>
+            <div class="rounded-2xl border border-line bg-parchment-light p-5">
+              <h3 class="font-display text-lg font-semibold">Signature movers</h3>
+              <div class="mt-3 divide-y divide-line/70">
+                ${analytics.data.top_items.map((i) => `
+                  <div class="flex items-center justify-between gap-3 py-2.5 text-sm">
+                    <span class="font-medium">${i.name}</span>
+                    <span class="text-charcoal-muted">${i.sold} · ${RMS.money(i.revenue)}</span>
+                  </div>`).join('')}
+              </div>
+            </div>
+          </div>
+          <div class="mt-4 rounded-2xl border border-line bg-parchment-light p-5"><h3 class="font-display text-lg font-semibold">Order status mix</h3><div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">${(analytics.data.order_status || []).map((s) => `<div><div class="flex justify-between text-xs"><span class="capitalize">${String(s.status).replaceAll('_',' ')}</span><strong>${s.count}</strong></div><div class="mt-1 h-2 overflow-hidden rounded-full bg-line/60"><div class="h-full rounded-full bg-ember" style="width:${Math.min(100, Math.max(4, Number(s.count) / Math.max(...(analytics.data.order_status || []).map((x)=>Number(x.count)||0),1)*100))}%"></div></div></div>`).join('') || '<p class="text-sm text-charcoal-muted">No order activity yet.</p>'}</div></div>
+          <div class="mt-4 grid gap-4 lg:grid-cols-3">
+            <div class="rounded-2xl border border-line bg-parchment-light p-5"><h3 class="font-display text-lg font-semibold">Channel performance</h3><p class="mt-1 text-xs text-charcoal-muted">Orders by QR, POS, and online source.</p><div class="mt-4">${dashboardBars(analytics.data.module_overview?.orders_by_source, 'source', 'count', 'bg-ember')}</div></div>
+            <div class="rounded-2xl border border-line bg-parchment-light p-5"><h3 class="font-display text-lg font-semibold">Floor utilization</h3><p class="mt-1 text-xs text-charcoal-muted">Live table state across the dining floor.</p><div class="mt-4">${dashboardBars(analytics.data.module_overview?.tables, 'status', 'count', 'bg-sage')}</div></div>
+            <div class="rounded-2xl border border-line bg-parchment-light p-5"><h3 class="font-display text-lg font-semibold">Actionable insights</h3><div class="mt-3 space-y-2">${(analytics.data.insights || []).slice(0, 4).map((i) => `<div class="rounded-xl border border-line bg-surface p-3 text-xs leading-relaxed"><span class="mr-1 font-semibold text-ember">•</span>${i}</div>`).join('') || '<p class="text-sm text-charcoal-muted">Insights will appear as activity is recorded.</p>'}</div></div>
+          </div>
+          <div class="mt-4 rounded-2xl border border-line bg-parchment-light p-5">
+            <h3 class="font-display text-lg font-semibold">Chef’s recommendations</h3>
+            <p class="mt-1 text-xs text-charcoal-muted">Collaborative filtering from the ML service</p>
+            <div id="recs" class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"></div>
+          </div>`;
+
+        try {
+          const [ml, menuRes] = await Promise.all([
+            RMS.api('/ml/recommend?customer_id=1&limit=4'),
+            RMS.api('/menu/items').catch(() => ({ data: [] })),
+          ]);
+          const byId = Object.fromEntries((menuRes.data || []).map((i) => [String(i.id), i]));
+          const recs = (ml.data.recommendations || []).map((r) => ({ ...r, ...(byId[String(r.id)] || {}) }));
+          document.getElementById('recs').innerHTML = recs.map((r) => dishCard(r)).join('')
+            || '<p class="col-span-full py-8 text-center text-sm text-charcoal-muted">No recommendations yet.</p>';
+        } catch (e) {
+          document.getElementById('recs').innerHTML = '<p class="col-span-full py-6 text-center text-sm text-charcoal-muted">ML offline — dashboard metrics only.</p>';
+        }
+      },
+    });
+
+    function kpi(label, value, hint, tone, compact) {
+      const bar = { ember: 'bg-ember', brass: 'bg-brass', sage: 'bg-sage', clay: 'bg-clay' }[tone] || 'bg-brass';
+      return `<div class="relative overflow-hidden rounded-2xl border border-line bg-parchment-light p-4 pl-5">
+        <span class="absolute inset-y-0 left-0 w-1 ${bar}"></span>
+        <div class="text-xs text-charcoal-muted">${label}</div>
+        <div class="mt-1 font-display ${compact ? 'text-[22px]' : 'text-[28px]'} font-semibold leading-none">${value}</div>
+        <div class="mt-2 text-[11px] text-charcoal-muted">${hint}</div>
+      </div>`;
+    }
+
+    function dashboardBars(rows, labelKey, valueKey, color) {
+      const data = (rows || []).map((r) => ({ label: String(r[labelKey] ?? 'Unknown').replaceAll('_', ' '), value: Number(r[valueKey]) || 0 }));
+      const max = Math.max(...data.map((r) => r.value), 1);
+      return data.length ? data.map((r) => `<div class="mb-3"><div class="mb-1 flex justify-between text-xs"><span class="capitalize">${r.label}</span><strong>${r.value}</strong></div><div class="h-2.5 overflow-hidden rounded-full bg-line/60"><div class="h-full rounded-full ${color}" style="width:${Math.max(4, Math.round(r.value / max * 100))}%"></div></div></div>`).join('') : '<p class="text-sm text-charcoal-muted">No module data yet.</p>';
+    }
+
+    function dishCard(r) {
+      return `<article class="grid grid-cols-[72px_1fr] items-center gap-3 rounded-2xl border border-line bg-surface p-3.5 transition hover:shadow-suite">
+        ${RMS.dishImage(r, 'h-[72px] w-[72px]')}
+        <div>
+          <h4 class="font-display text-base font-semibold">${r.name}</h4>
+          <p class="text-xs text-charcoal-muted">${r.category || r.category_name || 'Featured'} · AI pick</p>
+          ${r.price != null ? `<div class="mt-1 text-sm font-bold text-ember">${RMS.money(r.price)}</div>` : ''}
+        </div>
+      </article>`;
+    }
+  </script>
+</body>
+</html>

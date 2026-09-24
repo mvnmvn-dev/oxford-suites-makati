@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>POS & Billing — Oxford Suites RMS</title>
+  <link rel="icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <link rel="shortcut icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <script src="../assets/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="../assets/css/tailwind.css" />
+  <link rel="stylesheet" href="../assets/css/app.css?v=17" />
+</head>
+<body>
+  <div id="app-root" data-active="pos" data-roles="admin,cashier"></div>
+
+  <div id="pay-modal" class="rms-modal-backdrop hidden" role="dialog" aria-modal="true">
+    <div class="rms-modal max-w-lg">
+      <h2>Take payment</h2>
+      <p id="pay-summary" class="mt-1 text-sm text-charcoal-muted"></p>
+      <form id="pay-form" class="mt-4 space-y-3">
+        <input type="hidden" id="pay-order" />
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Primary method</label>
+            <select id="pay-method" class="field">
+              <option value="cash">Cash</option>
+              <option value="gcash">GCash</option>
+              <option value="maya">Maya</option>
+              <option value="card">Debit / Credit Card</option>
+              <option value="debit">Debit Card</option>
+              <option value="credit">Credit Card</option>
+            </select>
+          </div>
+          <div>
+            <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Bill split</label>
+            <select id="split-mode" class="field">
+              <option value="">No split (single tender)</option>
+              <option value="mixed">Mixed payment methods</option>
+              <option value="equal">Equal split</option>
+              <option value="by_customer">By guest</option>
+              <option value="by_item">By item</option>
+            </select>
+          </div>
+        </div>
+        <div id="equal-fields" class="hidden">
+          <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Number of shares / guests</label>
+          <input id="split-count" class="field" type="number" min="2" max="12" value="2" />
+        </div>
+        <div id="split-fields" class="hidden grid grid-cols-2 gap-2">
+          <select id="split-method" class="field"><option value="cash">Cash</option><option value="gcash">GCash</option><option value="maya">Maya</option><option value="card">Card</option></select>
+          <input id="split-amount" class="field" type="number" min="0" step="0.01" placeholder="First amount" />
+          <select id="split-method-2" class="field"><option value="gcash">GCash</option><option value="cash">Cash</option><option value="maya">Maya</option><option value="card">Card</option></select>
+          <input id="split-amount-2" class="field" type="number" min="0" step="0.01" placeholder="Second amount" />
+        </div>
+        <div id="preview-box" class="hidden rounded-xl border border-line bg-parchment p-3 text-xs text-charcoal-muted"></div>
+        <div id="receipt-preview" class="hidden receipt-preview" aria-live="polite"></div>
+        <div class="grid grid-cols-2 gap-2">
+          <select id="discount-type" class="field">
+            <option value="">No discount</option>
+            <option value="senior">Senior Citizen (20%)</option>
+            <option value="pwd">PWD (20%)</option>
+            <option value="employee">Employee (10%)</option>
+          </select>
+          <input id="promo-code" class="field" placeholder="Promo code" />
+        </div>
+        <input id="loyalty-voucher" class="field" placeholder="Loyalty voucher code (optional)" />
+        <label class="flex cursor-pointer items-center gap-2 text-xs text-charcoal-muted">
+          <input type="checkbox" id="force-fail" class="accent-ember" /> Simulate gateway failure
+        </label>
+        <div class="flex flex-wrap justify-end gap-2 pt-2">
+          <button type="button" class="btn-secondary" data-modal-close>Cancel</button>
+          <button type="button" id="btn-preview" class="btn-secondary">Preview split</button>
+          <button type="button" id="btn-receipt-preview" class="btn-secondary">Preview receipt</button>
+          <button type="submit" class="btn-primary">Charge</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="../assets/js/app.js?v=17"></script>
+  <script src="../assets/js/staff-shell.js?v=10"></script>
+  <script>
+    let openOrders = [];
+    RMS.bindModalDismiss('pay-modal');
+
+    function syncSplitUi() {
+      const mode = document.getElementById('split-mode').value;
+      document.getElementById('split-fields').classList.toggle('hidden', mode !== 'mixed');
+      document.getElementById('equal-fields').classList.toggle('hidden', !['equal', 'by_customer'].includes(mode));
+    }
+
+    async function refresh() {
+      const orders = await RMS.api('/orders');
+      openOrders = orders.data.filter((o) => !['paid', 'cancelled'].includes(o.status));
+      document.getElementById('open-orders').innerHTML = openOrders.map((o) => `
+        <tr class="border-b border-line/60 hover:bg-parchment/50">
+          <td class="px-3 py-3 text-sm"><strong>${o.order_number}</strong><br><span class="text-xs text-charcoal-muted">#${o.id}</span></td>
+          <td class="px-3 py-3 text-sm">${o.table_number || '—'}</td>
+          <td class="px-3 py-3 text-sm font-semibold">${RMS.money(o.total)}</td>
+          <td class="px-3 py-3">${RMS.statusBadge(o.status)}</td>
+          <td class="px-3 py-3"><button type="button" class="btn-sm" data-pay="${o.id}">Pay</button></td>
+        </tr>`).join('') || '<tr><td colspan="5" class="px-3 py-8 text-center text-sm text-charcoal-muted">No open checks.</td></tr>';
+
+      const pays = await RMS.api('/payments');
+      document.getElementById('receipts').innerHTML = pays.data.slice(0, 8).map((p) =>
+        `<div class="flex items-center justify-between gap-2 border-b border-line py-2 text-sm"><span><strong>${p.receipt_no}</strong> · ${RMS.money(p.amount)} · ${p.method}</span>${p.status === 'completed' ? `<button type="button" class="btn-sm text-ember" data-refund="${p.id}">Refund</button>` : ''}</div>`
+      ).join('') || '<p class="py-4 text-sm text-charcoal-muted">No payments yet.</p>';
+
+      try {
+        const cb = await RMS.api('/payments/circuit');
+        document.getElementById('circuit-status').textContent =
+          'Circuit breaker: ' + (cb.data.state || 'closed') + ' · failures ' + (cb.data.failures || 0);
+      } catch (_) {}
+    }
+
+    RMS.mountStaffPage({
+      title: 'POS & Billing',
+      subtitle: 'Settle checks — equal / by-guest / by-item splits, mixed tenders, promos & loyalty vouchers.',
+      async render(body) {
+        body.innerHTML = `
+          <div class="mb-4 flex flex-wrap items-center gap-3">
+            <p id="circuit-status" class="text-xs text-charcoal-muted"></p>
+            <div class="flex-1"></div>
+            <button type="button" id="btn-refresh" class="btn-secondary !text-xs">Refresh</button>
+          </div>
+          <div class="grid gap-5 lg:grid-cols-[1.35fr_1fr]">
+            <div>
+              <h3 class="mb-3 font-display text-lg font-semibold">Open checks</h3>
+              <div class="overflow-x-auto rounded-2xl border border-line">
+                <table class="w-full text-left">
+                  <thead class="bg-parchment/80 text-[11px] uppercase tracking-wide text-charcoal-muted">
+                    <tr><th class="px-3 py-3">Order</th><th class="px-3 py-3">Table</th><th class="px-3 py-3">Total</th><th class="px-3 py-3">Status</th><th class="px-3 py-3"></th></tr>
+                  </thead>
+                  <tbody id="open-orders"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="rounded-2xl border border-line bg-parchment-light p-5">
+              <h3 class="mb-2 font-display text-lg font-semibold">Recent receipts</h3>
+              <div id="receipts"></div>
+            </div>
+          </div>`;
+
+        document.getElementById('btn-refresh').onclick = refresh;
+        document.getElementById('open-orders').onclick = async (e) => {
+          const btn = e.target.closest('[data-pay]');
+          if (!btn) return;
+          const order = openOrders.find((o) => String(o.id) === btn.dataset.pay);
+          document.getElementById('pay-order').value = order.id;
+          document.getElementById('force-fail').checked = false;
+          document.getElementById('split-mode').value = '';
+          document.getElementById('promo-code').value = '';
+          document.getElementById('loyalty-voucher').value = '';
+          document.getElementById('discount-type').value = '';
+          document.getElementById('preview-box').classList.add('hidden');
+          document.getElementById('receipt-preview').classList.add('hidden');
+          syncSplitUi();
+          let remaining = order.total;
+          try {
+            const bill = await RMS.api('/payments/bill/' + order.id);
+            remaining = bill.data.remaining ?? order.total;
+          } catch (_) {}
+          document.getElementById('pay-summary').textContent =
+            order.order_number + ' · Table ' + (order.table_number || '—') + ' · Remaining ' + RMS.money(remaining);
+          document.getElementById('split-amount').value = '';
+          document.getElementById('split-amount-2').value = '';
+          RMS.openModal('pay-modal');
+        };
+        document.getElementById('receipts').onclick = async (e) => {
+          const btn = e.target.closest('[data-refund]');
+          if (!btn) return;
+          if (!await RMS.confirm('Refund this completed payment?', { title: 'Refund payment', confirmLabel: 'Continue' })) return;
+          const managerPin = await RMS.requestManagerPin('refund this payment');
+          if (!managerPin) return;
+          try {
+            await RMS.api('/payments/refund/' + btn.dataset.refund, { method: 'POST', body: { manager_pin: managerPin } });
+            RMS.toast('Payment refunded');
+            await refresh();
+          } catch (ex) { RMS.toast(ex.message, 'error'); }
+        };
+        await refresh();
+        setInterval(refresh, 12000);
+        window.addEventListener('rms:live', () => { refresh(); });
+      },
+    });
+
+    document.getElementById('split-mode').onchange = syncSplitUi;
+    document.getElementById('btn-preview').onclick = async () => {
+      const mode = document.getElementById('split-mode').value;
+      if (!['equal', 'by_customer', 'by_item'].includes(mode)) {
+        RMS.toast('Select equal, by guest, or by item to preview', 'error');
+        return;
+      }
+      try {
+        const res = await RMS.api('/payments/preview-split', {
+          method: 'POST',
+          body: {
+            order_id: Number(document.getElementById('pay-order').value),
+            split_mode: mode,
+            split_count: Number(document.getElementById('split-count').value) || 2,
+            method: document.getElementById('pay-method').value,
+          },
+        });
+        const box = document.getElementById('preview-box');
+        box.classList.remove('hidden');
+        box.innerHTML = (res.data.splits || []).map((s) =>
+          `<div class="flex justify-between py-1"><span>${s.label}</span><strong>${RMS.money(s.amount)} · ${s.method}</strong></div>`
+        ).join('') + `<div class="mt-2 border-t border-line pt-2">Remaining base: ${RMS.money(res.data.remaining)}</div>`;
+      } catch (ex) {
+        RMS.toast(ex.message, 'error');
+      }
+    };
+
+    document.getElementById('btn-receipt-preview').onclick = async () => {
+      const orderId = Number(document.getElementById('pay-order').value);
+      const box = document.getElementById('receipt-preview');
+      try {
+        const bill = await RMS.api('/payments/bill/' + orderId);
+        const order = await RMS.api('/orders/' + orderId);
+        const o = order.data;
+        const b = bill.data;
+        const discount = document.getElementById('discount-type').value;
+        const promo = document.getElementById('promo-code').value.trim();
+        const voucher = document.getElementById('loyalty-voucher').value.trim();
+        const method = document.getElementById('pay-method').value;
+        const mode = document.getElementById('split-mode').value;
+        const lines = (o.items || []).flatMap((i) => {
+          const main = `${String(i.quantity).padStart(2)} × ${(i.item_name || i.name || 'Item').slice(0, 22).padEnd(22)} ${RMS.money((i.unit_price || 0) * i.quantity)}`;
+          const mods = [];
+          if (i.notes) {
+            try {
+              const raw = typeof i.notes === 'string' && i.notes.trim().startsWith('{') ? JSON.parse(i.notes) : null;
+              if (raw && typeof raw === 'object') {
+                Object.entries(raw).forEach(([k, v]) => {
+                  if (k === '_display') return;
+                  const val = Array.isArray(v) ? v.join(', ') : v;
+                  mods.push(`     · ${k}: ${val}`);
+                });
+              } else if (typeof i.notes === 'string') {
+                mods.push(`     · ${i.notes}`);
+              }
+            } catch (_) {
+              mods.push(`     · ${i.notes}`);
+            }
+          }
+          return [main, ...mods];
+        });
+        let tenderNote = mode
+          ? `Split: ${mode.replace(/_/g, ' ')}`
+          : `Tender: ${method.toUpperCase()}`;
+        if (mode === 'mixed') {
+          tenderNote = `Mixed: ${document.getElementById('split-method').value}/${document.getElementById('split-method-2').value}`;
+        }
+        box.classList.remove('hidden');
+        box.textContent = [
+          'OXFORD SUITES · MAKATI',
+          'Restaurant of Suite',
+          '--------------------------------',
+          `Order  ${o.order_number}`,
+          `Table  ${o.table_number || '—'}`,
+          `Date   ${o.created_at || ''}`,
+          '--------------------------------',
+          ...lines,
+          '--------------------------------',
+          `Subtotal          ${RMS.money(o.subtotal ?? b.subtotal ?? o.total)}`,
+          `VAT (12%)         ${RMS.money(o.tax || 0)}`,
+          `Discount          ${RMS.money(o.discount || 0)}`,
+          discount ? `(Applied: ${discount})` : '',
+          promo ? `(Promo: ${promo})` : '',
+          voucher ? `(Loyalty: ${voucher})` : '',
+          `TOTAL DUE         ${RMS.money(b.remaining ?? o.total)}`,
+          tenderNote,
+          '--------------------------------',
+          'Preview only — not charged',
+          'Thank you for dining with us',
+        ].filter(Boolean).join('\n');
+      } catch (ex) {
+        RMS.toast(ex.message, 'error');
+      }
+    };
+
+    document.getElementById('pay-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const mode = document.getElementById('split-mode').value;
+      const body = {
+        order_id: Number(document.getElementById('pay-order').value),
+        method: document.getElementById('pay-method').value,
+        force_fail: document.getElementById('force-fail').checked,
+        discount_type: document.getElementById('discount-type').value,
+        promo_code: document.getElementById('promo-code').value.trim(),
+        loyalty_voucher: document.getElementById('loyalty-voucher').value.trim(),
+      };
+      if (mode === 'mixed') {
+        body.splits = [
+          { method: document.getElementById('split-method').value, amount: Number(document.getElementById('split-amount').value), label: 'Tender 1' },
+          { method: document.getElementById('split-method-2').value, amount: Number(document.getElementById('split-amount-2').value), label: 'Tender 2' },
+        ];
+      } else if (['equal', 'by_customer', 'by_item'].includes(mode)) {
+        body.split_mode = mode;
+        body.split_count = Number(document.getElementById('split-count').value) || 2;
+      }
+      if (body.discount_type || body.promo_code || body.loyalty_voucher) {
+        body.manager_pin = await RMS.requestManagerPin('override the discount');
+        if (!body.manager_pin) return;
+      }
+      try {
+        const res = await RMS.api('/payments', { method: 'POST', body });
+        RMS.closeModal('pay-modal');
+        const receipt = res.data.receipt_no || (res.data.receipts && res.data.receipts[0]) || '';
+        RMS.toast((res.data.settled ? 'Settled' : 'Partial pay') + (receipt ? ' · ' + receipt : '') + ' · ' + RMS.money(res.data.paid_now || res.data.amount));
+        await refresh();
+      } catch (ex) {
+        RMS.toast(ex.message, 'error');
+        await refresh();
+      }
+    };
+  </script>
+</body>
+</html>

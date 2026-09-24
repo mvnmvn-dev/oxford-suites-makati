@@ -14,10 +14,12 @@ services:
       - ml-service
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.oxford-web.rule=Host(`oxfordsuitesmakati.io`)"
+      - "traefik.http.routers.oxford-web.rule=Host(`oxfordsuitesmakati.io`) || Host(`www.oxfordsuitesmakati.io`)"
       - "traefik.http.routers.oxford-web.entrypoints=websecure"
       - "traefik.http.routers.oxford-web.tls=true"
       - "traefik.http.routers.oxford-web.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.oxford-web.tls.domains[0].main=oxfordsuitesmakati.io"
+      - "traefik.http.routers.oxford-web.tls.domains[0].sans=www.oxfordsuitesmakati.io"
       - "traefik.http.services.oxford-web.loadbalancer.server.port=80"
       - "traefik.docker.network=dokploy-network"
     networks:

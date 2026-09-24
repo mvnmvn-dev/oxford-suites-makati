@@ -11,11 +11,13 @@ class Auth
         if (session_status() === PHP_SESSION_NONE) {
             session_name($config['session_name']);
             $base = rtrim($config['base_url'] ?: '/', '/') ?: '/';
+            $forwardedProto = strtolower(trim(explode(',', $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')[0] ?? ''));
+            $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || $forwardedProto === 'https';
             session_set_cookie_params([
                 'lifetime' => 0,
                 'path' => $base === '/' ? '/' : $base . '/',
                 'httponly' => true,
-                'secure' => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'),
+                'secure' => $isHttps,
                 'samesite' => 'Lax',
             ]);
             session_start();

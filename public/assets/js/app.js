@@ -191,9 +191,11 @@
   async function uploadMenuImage(file) {
     const fd = new FormData();
     fd.append('image', file);
+    const token = await csrfToken();
     const res = await fetch(API + '/menu/upload', {
       method: 'POST',
       credentials: 'include',
+      headers: token ? { 'X-CSRF-Token': token } : {},
       body: fd,
     });
     const data = await res.json().catch(() => ({}));

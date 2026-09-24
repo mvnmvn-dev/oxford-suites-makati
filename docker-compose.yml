@@ -1,17 +1,7 @@
 version: "3.9"
 
 services:
-  mysql:
-    image: mysql:8.0
-    environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: oxford_rms
-    ports:
-      - "3307:3306"
-    volumes:
-      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
-      - rms_mysql:/var/lib/mysql
-
+  # 1. The Machine Learning Engine
   ml-service:
     build: ./ml-service
     ports:
@@ -19,16 +9,20 @@ services:
     environment:
       ML_PORT: "5001"
 
-  # PHP gateway + frontend can run on XAMPP host; optional apache container:
-  # web:
-  #   image: php:8.2-apache
-  #   volumes:
-  #     - ./:/var/www/html
-  #   ports:
-  #     - "8080:80"
-  #   depends_on:
-  #     - mysql
-  #     - ml-service
-
-volumes:
-  rms_mysql:
+  # 2. The Live PHP Web Application Server
+  web:
+    image: php:8.2-apache
+    volumes:
+      - ./:/var/www/html
+    ports:
+      - "8080:80"
+    depends_on:
+      - ml-service
+    # Dokploy routing rules to bind your domain to this container:
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.oxford-web.rule=Host(`oxfordsuitesmakati.io`)"
+      - "traefik.http.routers.oxford-web.entrypoints=websecure"
+      - "traefik.http.routers.oxford-web.tls=true"
+      - "traefik.http.routers.oxford-web.tls.certresolver=letsencrypt"
+      - "traefik.http.services.oxford-web.loadbalancer.server.port=80"

@@ -831,6 +831,53 @@ html.a11y-colorblind [data-status="cleaning"] .h-1\.5 { background: #CC79A7 !imp
   color: #fff;
 }
 
+/* Data tables keep their structure and contrast in both themes. */
+table {
+  color: var(--ink);
+  border-color: var(--line);
+}
+table thead {
+  background: color-mix(in srgb, var(--page-deep) 72%, var(--surface));
+  color: var(--ink-soft);
+}
+table tbody tr {
+  border-color: var(--line);
+  background: var(--surface);
+}
+table tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--surface-soft) 72%, var(--surface));
+}
+table tbody tr:hover {
+  background: color-mix(in srgb, var(--page-deep) 58%, var(--surface));
+}
+
+/* QR artwork must stay black-on-white so it remains visible and scannable. */
+.qr-code,
+.qr-preview,
+.qr-card,
+[data-qr] {
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: #fff;
+  color: #111;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+.qr-code img,
+.qr-code canvas,
+.qr-code svg,
+.qr-preview img,
+.qr-preview canvas,
+.qr-preview svg,
+.qr-card img,
+.qr-card canvas,
+.qr-card svg,
+[data-qr] img,
+[data-qr] canvas,
+[data-qr] svg {
+  display: block;
+  background: #fff;
+}
+
 .floor-plan {
   display: grid;
   gap: 1.25rem;
@@ -877,6 +924,12 @@ html.a11y-colorblind [data-status="cleaning"] .h-1\.5 { background: #CC79A7 !imp
 .floor-table[data-status="reserved"],
 .floor-table[data-status="reserved_soon"] { border-color: #C89A4B; background: color-mix(in srgb, #E8DFD0 60%, var(--surface)); }
 .floor-table[data-status="cleaning"] { border-color: #D9773F; background: color-mix(in srgb, #F3D5BC 50%, var(--surface)); }
+
+html.dark .floor-table[data-status="available"] { background: color-mix(in srgb, #6B7F5B 34%, var(--surface)); }
+html.dark .floor-table[data-status="occupied"] { background: color-mix(in srgb, #A8342A 34%, var(--surface)); }
+html.dark .floor-table[data-status="reserved"],
+html.dark .floor-table[data-status="reserved_soon"] { background: color-mix(in srgb, #C89A4B 30%, var(--surface)); }
+html.dark .floor-table[data-status="cleaning"] { background: color-mix(in srgb, #D9773F 32%, var(--surface)); }
 
 .receipt-preview {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;

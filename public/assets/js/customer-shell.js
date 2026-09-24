@@ -2,7 +2,8 @@
  * Customer portal shell — profile dropdown, live notifications, account modals
  */
 (function (global) {
-  const BASE = '/oxford-rms';
+  // Works both from XAMPP (/oxford-rms) and from the production domain root.
+  const BASE = window.location.pathname.startsWith('/oxford-rms') ? '/oxford-rms' : '';
 
   function menuHref() {
     const params = new URLSearchParams(location.search);

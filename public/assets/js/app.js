@@ -2,7 +2,8 @@
  * Oxford Suites RMS — API client + Tailwind UI shell helpers
  */
 (function (global) {
-  const BASE = '/oxford-rms';
+  // Works both from XAMPP (/oxford-rms) and from the production domain root.
+  const BASE = window.location.pathname.startsWith('/oxford-rms') ? '/oxford-rms' : '';
   const API = BASE + '/api';
   let csrfPromise = null;
 

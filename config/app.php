@@ -31,7 +31,9 @@ return [
     'tagline' => 'Restaurant of Suite',
     'version' => '1.0.0',
     'timezone' => 'Asia/Manila',
-    'base_url' => getenv('RMS_BASE_URL') ?: '/oxford-rms',
+    // Set RMS_BASE_URL=/oxford-rms for XAMPP subdirectory hosting. For a
+    // production virtual host at the domain root, leave it empty or unset.
+    'base_url' => getenv('RMS_BASE_URL') !== false ? rtrim(getenv('RMS_BASE_URL'), '/') : '',
     'api_prefix' => '/api',
 
     'db' => [

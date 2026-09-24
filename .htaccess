@@ -1,5 +1,10 @@
 RewriteEngine On
-RewriteBase /oxford-rms/
+RewriteBase /
+
+# The production virtual host serves this project at the domain root.
+# Explicitly declare the frontend entry point for hosts that do not include
+# index.html in DirectoryIndex by default.
+DirectoryIndex index.html
 
 # API Gateway
 RewriteCond %{REQUEST_FILENAME} !-f

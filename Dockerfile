@@ -9,17 +9,14 @@ RUN docker-php-ext-install mysqli pdo pdo_mysql
 # 3. Enable apache rewrite rules for framework routing paths
 RUN a2enmod rewrite
 
-# 4. Explicitly tell Apache to allow .htaccess overrides on your root directory
-RUN echo '<Directory /var/www/html/>\n\
-    Options Indexes FollowSymLinks\n\
-    AllowOverride All\n\
-    Require all granted\n\
-</Directory>' >> /etc/apache2/apache2.conf
+# 3a. Enable the project Apache configuration for root index and .htaccess rules
+COPY docker/apache-site.conf /etc/apache2/conf-available/oxford-site.conf
+RUN a2enconf oxford-site
 
-# 5. Copy all your system code assets into the container workspace
+# 4. Copy all your system code assets into the container workspace
 COPY . /var/www/html/
 
-# 6. Fix permissions so Apache can read your files cleanly
+# 5. Fix permissions so Apache can read your files cleanly
 RUN chown -R www-data:www-data /var/www/html
 
 EXPOSE 80

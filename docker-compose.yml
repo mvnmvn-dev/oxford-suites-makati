@@ -10,7 +10,6 @@ services:
 
   web:
     build: .
-    # Removed public host ports to prevent routing conflicts
     depends_on:
       - ml-service
     labels:
@@ -20,3 +19,12 @@ services:
       - "traefik.http.routers.oxford-web.tls=true"
       - "traefik.http.routers.oxford-web.tls.certresolver=letsencrypt"
       - "traefik.http.services.oxford-web.loadbalancer.server.port=80"
+      # FORCE TRAEFIK TO USE DOKPLOY'S INTERNAL ROUTER COMPOSITIONS
+      - "traefik.docker.network=dokploy-network"
+    networks:
+      - dokploy-network
+      - default
+
+networks:
+  dokploy-network:
+    external: true

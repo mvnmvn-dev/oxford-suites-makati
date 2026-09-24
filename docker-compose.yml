@@ -9,10 +9,8 @@ services:
       ML_PORT: "5001"
 
   web:
-    # Tell Docker to build using the Dockerfile we just made:
     build: .
-    ports:
-      - "8080:80"
+    # Removed public host ports to prevent routing conflicts
     depends_on:
       - ml-service
     labels:

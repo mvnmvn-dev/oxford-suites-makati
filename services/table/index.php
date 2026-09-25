@@ -20,6 +20,8 @@ class TableService
 
         if ($method === 'GET' && $sub === '') {
             $this->syncUnassignedReservations($pdo);
+            $today = date('Y-m-d');
+            $now = date('H:i:s');
             $rows = $pdo->query(
                 "SELECT dt.*,
                         COALESCE((SELECT COUNT(*) FROM orders o WHERE o.table_id = dt.id AND o.status NOT IN ('paid','cancelled')), 0) AS open_orders,
@@ -35,16 +37,15 @@ class TableService
                 if ($r['status'] === 'available' || $r['status'] === 'reserved') {
                     $soon = $pdo->prepare(
                         "SELECT reservation_time, customer_name,
-                                reservation_time <= CURTIME() AS is_current
+                                reservation_time <= ? AS is_current
                          FROM reservations
-                         WHERE table_id = ? AND reservation_date = CURDATE()
+                         WHERE table_id = ? AND reservation_date = ?
                            AND status IN ('pending','confirmed')
-                           AND ((reservation_time BETWEEN CURTIME() AND ADDTIME(CURTIME(), '02:00:00'))
-                                OR reservation_time BETWEEN SUBTIME(CURTIME(), '02:00:00') AND CURTIME())
-                         ORDER BY reservation_time ASC
+                           AND reservation_time BETWEEN SUBTIME(?, '02:00:00') AND ADDTIME(?, '02:00:00')
+                         ORDER BY ABS(TIME_TO_SEC(TIMEDIFF(reservation_time, ?))) ASC
                          LIMIT 1"
                     );
-                    $soon->execute([(int)$r['id']]);
+                    $soon->execute([$now, (int)$r['id'], $today, $now, $now, $now]);
                     $next = $soon->fetch();
                     if ($next) {
                         $r['display_status'] = 'reserved_soon';
@@ -107,14 +108,16 @@ class TableService
     /** Attach active reservations created without a preferred table to the floor. */
     private function syncUnassignedReservations(PDO $pdo): void
     {
-        $reservations = $pdo->query(
+        $reservations = $pdo->prepare(
             "SELECT id, party_size, reservation_date, reservation_time, seating_pref
              FROM reservations
              WHERE table_id IS NULL
-               AND reservation_date >= CURDATE()
+               AND reservation_date >= ?
                AND status IN ('pending','confirmed')
              ORDER BY reservation_date, reservation_time, id"
-        )->fetchAll();
+        );
+        $reservations->execute([date('Y-m-d')]);
+        $reservations = $reservations->fetchAll();
         if (!$reservations) return;
 
         $tables = $pdo->query(

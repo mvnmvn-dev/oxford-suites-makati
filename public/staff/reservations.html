@@ -84,6 +84,13 @@
     let reservationRefreshBusy = false;
     RMS.bindModalDismiss('res-modal');
 
+    function localDateString(date = new Date()) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
     function formatDayLabel(ds) {
       if (!ds) return 'Select a day';
       return new Date(ds + 'T12:00:00').toLocaleDateString('en-US', {
@@ -100,7 +107,7 @@
       document.getElementById('r-party').value = '2';
       document.getElementById('r-time').value = '19:00';
       document.getElementById('r-status').value = 'confirmed';
-      document.getElementById('r-date').value = dateStr || new Date().toISOString().slice(0, 10);
+      document.getElementById('r-date').value = dateStr || localDateString();
       RMS.openModal('res-modal');
     }
 
@@ -212,7 +219,7 @@
 
       const firstDow = new Date(cursor.getFullYear(), cursor.getMonth(), 1).getDay();
       const daysInMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
-      const todayStr = new Date().toISOString().slice(0, 10);
+      const todayStr = localDateString();
 
       const heads = ['S','M','T','W','T','F','S']
         .map((d) => `<div class="py-2 text-center text-[10px] font-semibold uppercase tracking-[0.12em] text-charcoal-muted">${d}</div>`)
@@ -306,11 +313,11 @@
         document.getElementById('btn-today').onclick = () => {
           cursor = new Date();
           cursor.setDate(1);
-          selectedDay = new Date().toISOString().slice(0, 10);
+          selectedDay = localDateString();
           drawCal();
         };
-        document.getElementById('btn-new').onclick = () => openNewReservation(selectedDay || new Date().toISOString().slice(0, 10));
-        document.getElementById('btn-book-day').onclick = () => openNewReservation(selectedDay || new Date().toISOString().slice(0, 10));
+        document.getElementById('btn-new').onclick = () => openNewReservation(selectedDay || localDateString());
+        document.getElementById('btn-book-day').onclick = () => openNewReservation(selectedDay || localDateString());
         document.getElementById('cal-grid').addEventListener('click', (e) => {
           const cell = e.target.closest('[data-day]');
           if (!cell) return;
@@ -318,7 +325,7 @@
           syncSelectionStyles();
           renderDayDetail(selectedDay);
         });
-        selectedDay = new Date().toISOString().slice(0, 10);
+        selectedDay = localDateString();
         await drawCal();
         clearInterval(reservationRefreshTimer);
         reservationRefreshTimer = setInterval(refreshReservationsLive, 10000);

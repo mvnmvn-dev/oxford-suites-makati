@@ -106,7 +106,13 @@
             </div>
           </div>`;
 
-        document.getElementById('date').value = new Date().toISOString().slice(0, 10);
+        function localDateString(date = new Date()) {
+          const y = date.getFullYear();
+          const m = String(date.getMonth() + 1).padStart(2, '0');
+          const d = String(date.getDate()).padStart(2, '0');
+          return `${y}-${m}-${d}`;
+        }
+        document.getElementById('date').value = localDateString();
 
         let calCursor = new Date();
         calCursor.setDate(1);
@@ -122,7 +128,7 @@
           mine.forEach((r) => { (byDay[r.reservation_date] = byDay[r.reservation_date] || []).push(r); });
           const firstDow = new Date(calCursor.getFullYear(), calCursor.getMonth(), 1).getDay();
           const daysInMonth = new Date(calCursor.getFullYear(), calCursor.getMonth() + 1, 0).getDate();
-          const todayStr = new Date().toISOString().slice(0, 10);
+          const todayStr = localDateString();
           const selected = document.getElementById('date').value;
           const heads = ['S','M','T','W','T','F','S'].map((d) =>
             `<div class="bg-[#F6F1E9] py-1.5 text-[10px] font-bold text-[#6B635C]">${d}</div>`

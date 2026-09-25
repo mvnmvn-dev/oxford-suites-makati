@@ -19,6 +19,7 @@ class TableService
         $base = rtrim($config['base_url'], '/');
 
         if ($method === 'GET' && $sub === '') {
+            $this->syncUnassignedReservations($pdo);
             $rows = $pdo->query(
                 "SELECT dt.*,
                         COALESCE((SELECT COUNT(*) FROM orders o WHERE o.table_id = dt.id AND o.status NOT IN ('paid','cancelled')), 0) AS open_orders,
@@ -33,10 +34,13 @@ class TableService
                 // Reserved within next 2 hours → "reserved_soon" for floor UI
                 if ($r['status'] === 'available' || $r['status'] === 'reserved') {
                     $soon = $pdo->prepare(
-                        "SELECT reservation_time, customer_name FROM reservations
+                        "SELECT reservation_time, customer_name,
+                                reservation_time <= CURTIME() AS is_current
+                         FROM reservations
                          WHERE table_id = ? AND reservation_date = CURDATE()
                            AND status IN ('pending','confirmed')
-                           AND reservation_time BETWEEN CURTIME() AND ADDTIME(CURTIME(), '02:00:00')
+                           AND ((reservation_time BETWEEN CURTIME() AND ADDTIME(CURTIME(), '02:00:00'))
+                                OR reservation_time BETWEEN SUBTIME(CURTIME(), '02:00:00') AND CURTIME())
                          ORDER BY reservation_time ASC
                          LIMIT 1"
                     );
@@ -44,7 +48,8 @@ class TableService
                     $next = $soon->fetch();
                     if ($next) {
                         $r['display_status'] = 'reserved_soon';
-                        $r['next_reservation'] = substr((string)$next['reservation_time'], 0, 5)
+                        $r['next_reservation'] = (!empty($next['is_current']) ? 'Current · ' : 'Soon · ')
+                            . substr((string)$next['reservation_time'], 0, 5)
                             . (!empty($next['customer_name']) ? ' · ' . $next['customer_name'] : '');
                     }
                 }
@@ -97,6 +102,55 @@ class TableService
         }
 
         Response::error('Table route not found', 404);
+    }
+
+    /** Attach active reservations created without a preferred table to the floor. */
+    private function syncUnassignedReservations(PDO $pdo): void
+    {
+        $reservations = $pdo->query(
+            "SELECT id, party_size, reservation_date, reservation_time, seating_pref
+             FROM reservations
+             WHERE table_id IS NULL
+               AND reservation_date >= CURDATE()
+               AND status IN ('pending','confirmed')
+             ORDER BY reservation_date, reservation_time, id"
+        )->fetchAll();
+        if (!$reservations) return;
+
+        $tables = $pdo->query(
+            "SELECT id, capacity, seating_type, status
+             FROM dining_tables
+             WHERE status <> 'cleaning'
+             ORDER BY capacity, table_number"
+        )->fetchAll();
+        foreach ($reservations as $reservation) {
+            foreach ($tables as $table) {
+                if ((int)$table['capacity'] < (int)$reservation['party_size']) continue;
+                if (($reservation['seating_pref'] ?? 'any') !== 'any'
+                    && ($reservation['seating_pref'] ?? '') !== ($table['seating_type'] ?? '')) continue;
+                $conflict = $pdo->prepare(
+                    "SELECT id FROM reservations
+                     WHERE table_id = ? AND id <> ? AND reservation_date = ?
+                       AND ABS(TIME_TO_SEC(TIMEDIFF(reservation_time, ?))) < 7200
+                       AND status IN ('pending','confirmed','seated') LIMIT 1"
+                );
+                $conflict->execute([
+                    (int)$table['id'],
+                    (int)$reservation['id'],
+                    $reservation['reservation_date'],
+                    $reservation['reservation_time'],
+                ]);
+                if ($conflict->fetch()) continue;
+
+                $pdo->prepare('UPDATE reservations SET table_id = ? WHERE id = ? AND table_id IS NULL')
+                    ->execute([(int)$table['id'], (int)$reservation['id']]);
+                if (in_array($reservation['status'] ?? 'pending', ['pending', 'confirmed'], true)) {
+                    $pdo->prepare("UPDATE dining_tables SET status='reserved' WHERE id=? AND status='available'")
+                        ->execute([(int)$table['id']]);
+                }
+                break;
+            }
+        }
     }
 }
 

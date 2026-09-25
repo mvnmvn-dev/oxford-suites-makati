@@ -110,14 +110,19 @@ class ReservationService
             if (!in_array($seatingPref, ['any', 'indoor', 'outdoor', 'window'], true)) {
                 $seatingPref = 'any';
             }
-            // Auto-pick a matching table when none selected
-            if (!$tableId && $seatingPref !== 'any') {
-                $pick = $pdo->prepare(
-                    "SELECT id FROM dining_tables
-                     WHERE seating_type = ? AND capacity >= ? AND status IN ('available','reserved')
-                     ORDER BY capacity ASC LIMIT 1"
-                );
-                $pick->execute([$seatingPref, (int)$b['party_size']]);
+            // Auto-pick a matching table when none selected, including the
+            // default "any" preference so the booking reaches Tables & QR.
+            if (!$tableId) {
+                $pickSql = "SELECT id FROM dining_tables
+                            WHERE capacity >= ? AND status IN ('available','reserved')";
+                $pickParams = [(int)$b['party_size']];
+                if ($seatingPref !== 'any') {
+                    $pickSql .= ' AND seating_type = ?';
+                    $pickParams[] = $seatingPref;
+                }
+                $pickSql .= ' ORDER BY capacity ASC, table_number LIMIT 1';
+                $pick = $pdo->prepare($pickSql);
+                $pick->execute($pickParams);
                 $picked = $pick->fetch();
                 if ($picked) {
                     $tableId = (int)$picked['id'];

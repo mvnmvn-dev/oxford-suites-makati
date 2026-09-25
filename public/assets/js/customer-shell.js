@@ -453,12 +453,28 @@
       }
       list.innerHTML = items.map((n) => {
         const unread = Number(n.is_read) === 0;
-        return `<button type="button" class="notif-item ${unread ? 'is-unread' : ''}" data-notif-id="${n.id}" data-unread="${unread ? '1' : '0'}" data-href="${notifHref(n)}">
+        const notificationId = n.id ? ` data-notif-id="${n.id}"` : '';
+        return `<button type="button" class="notif-item ${unread ? 'is-unread' : ''}"${notificationId} data-unread="${unread ? '1' : '0'}" data-href="${notifHref(n)}">
           <div class="notif-title">${escapeHtml(n.title)}</div>
           ${n.body ? `<div class="notif-body">${escapeHtml(n.body)}</div>` : ''}
           <div class="notif-meta">${escapeHtml(n.created_at || '')}${unread ? ' · New' : ''}</div>
         </button>`;
       }).join('');
+    }
+
+    function orderProgressItems(orders) {
+      return (orders || [])
+        .filter((o) => !['paid', 'cancelled', 'served'].includes(String(o.status)))
+        .slice(0, 3)
+        .map((o) => ({
+          id: null,
+          is_read: 1,
+          type: 'order_progress',
+          title: `${o.order_number || 'Your order'} · ${o.status_label || 'Order received'}`,
+          body: 'Live kitchen progress — tap to view your order.',
+          created_at: o.updated_at || o.created_at || '',
+          order_id: o.id,
+        }));
     }
 
     function setBadge(count) {
@@ -487,12 +503,21 @@
     }
 
     async function refreshNotifications(renderPanel) {
+      const [notificationsResult, ordersResult] = await Promise.allSettled([
+        RMS.api('/notifications'),
+        RMS.api('/orders?mine=1'),
+      ]);
       try {
-        const res = await RMS.api('/notifications');
-        const data = res.data || {};
-        const payload = Array.isArray(data)
-          ? { items: data, unread: data.filter((n) => !Number(n.is_read)).length, badge: data.filter((n) => !Number(n.is_read)).length }
-          : data;
+        if (notificationsResult.status === 'rejected' && ordersResult.status === 'rejected') {
+          throw notificationsResult.reason || new Error('Could not load updates');
+        }
+        const raw = notificationsResult.status === 'fulfilled' ? (notificationsResult.value.data || {}) : {};
+        const base = Array.isArray(raw)
+          ? { items: raw, unread: raw.filter((n) => !Number(n.is_read)).length, badge: raw.filter((n) => !Number(n.is_read)).length }
+          : raw;
+        const orders = ordersResult.status === 'fulfilled' ? (ordersResult.value.data || []) : [];
+        const progress = orderProgressItems(orders);
+        const payload = { ...base, items: [...progress, ...(base.items || [])] };
         setBadge(Number(payload.badge || payload.unread || 0));
         if (renderPanel || (notifPanel && !notifPanel.classList.contains('hidden'))) {
           renderNotifList(payload);

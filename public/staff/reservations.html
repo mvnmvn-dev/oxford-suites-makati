@@ -80,6 +80,8 @@
     cursor.setDate(1);
     let byDay = {};
     let selectedDay = null;
+    let reservationRefreshTimer = null;
+    let reservationRefreshBusy = false;
     RMS.bindModalDismiss('res-modal');
 
     function formatDayLabel(ds) {
@@ -189,6 +191,12 @@
         const on = el.dataset.day === selectedDay;
         el.classList.toggle('is-selected', on);
       });
+    }
+
+    async function refreshReservationsLive() {
+      if (reservationRefreshBusy) return;
+      reservationRefreshBusy = true;
+      try { await drawCal(); } catch (_) {} finally { reservationRefreshBusy = false; }
     }
 
     async function drawCal() {
@@ -312,6 +320,9 @@
         });
         selectedDay = new Date().toISOString().slice(0, 10);
         await drawCal();
+        clearInterval(reservationRefreshTimer);
+        reservationRefreshTimer = setInterval(refreshReservationsLive, 10000);
+        window.addEventListener('rms:live', refreshReservationsLive);
       },
     });
 

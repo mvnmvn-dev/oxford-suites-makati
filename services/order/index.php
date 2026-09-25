@@ -237,7 +237,7 @@ class OrderService
                 Response::error('Invalid status');
             }
             $orderId = (int)$m[1];
-            $prev = $pdo->prepare('SELECT status FROM orders WHERE id = ?');
+            $prev = $pdo->prepare('SELECT status, customer_id, order_number FROM orders WHERE id = ?');
             $prev->execute([$orderId]);
             $prevRow = $prev->fetch();
             if (!$prevRow) {
@@ -266,7 +266,26 @@ class OrderService
                 $pdo->rollBack();
                 Response::error($e->getMessage(), 400);
             }
-            Response::success($this->fetchOrder($pdo, $orderId), 'Status updated');
+            $updatedOrder = $this->fetchOrder($pdo, $orderId);
+            if ($updatedOrder && !empty($prevRow['customer_id']) && $prevRow['status'] !== $status) {
+                $statusLabel = match ($status) {
+                    'pending', 'confirmed' => 'Order received',
+                    'preparing' => 'Preparing your order',
+                    'ready' => 'Ready to serve',
+                    'served', 'paid' => 'Served',
+                    'cancelled' => 'Order cancelled',
+                    default => ucfirst((string)$status),
+                };
+                $pdo->prepare('INSERT INTO notifications (user_id, role_target, title, body, type) VALUES (?,?,?,?,?)')
+                    ->execute([
+                        (int)$prevRow['customer_id'],
+                        'customer',
+                        'Order progress update',
+                        $prevRow['order_number'] . ' · ' . $statusLabel,
+                        'order_progress',
+                    ]);
+            }
+            Response::success($updatedOrder, 'Status updated');
         }
 
         Response::error('Order route not found', 404);

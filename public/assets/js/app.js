@@ -743,6 +743,15 @@
   function openModal(id) {
     const m = document.getElementById(id);
     if (!m) return;
+    // Page-local modals can be rendered inside #portal-body, whose entrance
+    // animation creates a stacking context. Move them to body before opening
+    // so they always sit above the sticky guest header and promo strip.
+    if (m.parentElement !== document.body) {
+      const placeholder = document.createComment('rms-modal-placeholder');
+      m.before(placeholder);
+      m.__rmsModalPlaceholder = placeholder;
+      document.body.appendChild(m);
+    }
     m.classList.remove('hidden');
     m.classList.add('grid');
     // Force reflow so the enter transition runs
@@ -761,6 +770,18 @@
     const finish = () => {
       m.classList.add('hidden');
       m.classList.remove('grid');
+      const placeholder = m.__rmsModalPlaceholder;
+      if (placeholder) {
+        if (placeholder.parentNode) {
+          placeholder.parentNode.insertBefore(m, placeholder);
+          placeholder.remove();
+        } else {
+          // The page re-rendered while the modal was open; discard the stale
+          // detached modal and let the freshly rendered one remain in place.
+          m.remove();
+        }
+        delete m.__rmsModalPlaceholder;
+      }
       if (!document.querySelector('.rms-modal-backdrop.is-open')) {
         document.body.classList.remove('overflow-hidden');
       }

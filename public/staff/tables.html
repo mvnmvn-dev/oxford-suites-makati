@@ -53,6 +53,36 @@
       return t.display_status || t.status;
     }
 
+    function localDateString(date = new Date()) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    async function renderReservations() {
+      const root = document.getElementById('today-reservations');
+      if (!root) return;
+      try {
+        const res = await RMS.api('/reservations?date=' + encodeURIComponent(localDateString()));
+        const rows = (res.data || []).filter((r) => ['pending', 'confirmed', 'seated'].includes(String(r.status)))
+          .sort((a, b) => String(a.reservation_time || '').localeCompare(String(b.reservation_time || '')));
+        root.innerHTML = rows.length ? rows.map((r) => `
+          <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface p-3 text-sm">
+            <div>
+              <div class="flex flex-wrap items-center gap-2">
+                <strong class="tabular-nums">${String(r.reservation_time || '').slice(0, 5)}</strong>
+                ${RMS.statusBadge(r.status)}
+                <span class="text-charcoal-muted">Table ${r.table_number || 'Pending assignment'}</span>
+              </div>
+              <p class="mt-1 font-semibold">${r.customer_name || 'Guest'} · Party of ${r.party_size || '—'}</p>
+            </div>
+          </div>`).join('') : '<p class="rounded-xl border border-dashed border-line p-5 text-sm text-charcoal-muted">No current reservations for today.</p>';
+      } catch (_) {
+        root.innerHTML = '<p class="text-sm text-charcoal-muted">Today&#39;s reservations unavailable.</p>';
+      }
+    }
+
     async function renderFloor() {
       const res = await RMS.api('/tables');
       tables = res.data;
@@ -133,6 +163,16 @@
           <section class="mb-6">
             <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div>
+                <h2 class="font-display text-xl font-semibold">Today’s reservations</h2>
+                <p class="mt-0.5 text-xs text-charcoal-muted">Confirmed, pending, and seated bookings for the current local date</p>
+              </div>
+              <button type="button" id="reservation-refresh" class="btn-secondary !text-xs">Refresh</button>
+            </div>
+            <div id="today-reservations" class="space-y-2"></div>
+          </section>
+          <section class="mb-6">
+            <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
                 <h2 class="font-display text-xl font-semibold">Waiter request queue</h2>
                 <p id="request-stats" class="mt-0.5 text-xs text-charcoal-muted">Live service alerts</p>
               </div>
@@ -142,19 +182,24 @@
           </section>
           <div id="floor" class="floor-plan"></div>`;
         await renderFloor();
+        await renderReservations();
         await renderRequests();
         setInterval(async () => {
           await renderFloor();
+          await renderReservations();
           await renderRequests();
         }, 10000);
         window.addEventListener('rms:live', async () => {
           await renderFloor();
+          await renderReservations();
           await renderRequests();
         });
         document.getElementById('request-refresh').onclick = async () => {
           await renderFloor();
+          await renderReservations();
           await renderRequests();
         };
+        document.getElementById('reservation-refresh').onclick = renderReservations;
         document.getElementById('service-requests').onclick = async (e) => {
           const btn = e.target.closest('[data-request-status]');
           if (!btn) return;

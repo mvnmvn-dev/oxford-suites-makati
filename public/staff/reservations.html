@@ -80,6 +80,7 @@
     cursor.setDate(1);
     let byDay = {};
     let selectedDay = null;
+    let floorTables = [];
     let reservationRefreshTimer = null;
     let reservationRefreshBusy = false;
     RMS.bindModalDismiss('res-modal');
@@ -164,7 +165,12 @@
         return;
       }
 
-      list.innerHTML = rows.map((r, idx) => `
+      list.innerHTML = rows.map((r, idx) => {
+        const tableOptions = floorTables
+          .filter((t) => Number(t.capacity) >= Number(r.party_size || 0) && t.status !== 'cleaning')
+          .map((t) => `<option value="${t.id}" ${String(t.id) === String(r.table_id || '') ? 'selected' : ''}>${t.table_number} · ${t.capacity} seats</option>`)
+          .join('');
+        return `
         <article class="border-b border-line/70 px-4 py-3.5 transition hover:bg-parchment/50 ${idx === 0 ? '' : ''}">
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
@@ -174,11 +180,17 @@
               </div>
               <p class="mt-1 truncate text-sm font-semibold text-charcoal">${r.customer_name}</p>
               <p class="mt-0.5 text-xs text-charcoal-muted">Party of ${r.party_size || '—'}${r.customer_phone ? ' · ' + r.customer_phone : ''}</p>
+              <label class="mt-2 flex items-center gap-2 text-xs text-charcoal-muted">Table
+                <select class="field !w-auto !py-1 !text-xs" data-assign-res="${r.id}">
+                  <option value="">Unassigned</option>${tableOptions}
+                </select>
+              </label>
               ${r.notes ? `<p class="mt-2 text-xs leading-relaxed text-charcoal-muted">${r.notes}</p>` : ''}
               ${['cancelled', 'completed', 'no_show'].includes(r.status) ? '' : `<button type="button" class="btn-sm mt-3 text-ember" data-cancel-res="${r.id}">Cancel reservation</button>`}
             </div>
           </div>
-        </article>`).join('');
+        </article>`;
+      }).join('');
       list.onclick = async (event) => {
         const button = event.target.closest('[data-cancel-res]');
         if (!button) return;
@@ -190,6 +202,21 @@
           RMS.toast('Reservation cancelled');
           await drawCal();
         } catch (ex) { RMS.toast(ex.message, 'error'); }
+      };
+      list.onchange = async (event) => {
+        const select = event.target.closest('[data-assign-res]');
+        if (!select) return;
+        try {
+          await RMS.api('/reservations/' + select.dataset.assignRes + '/table', {
+            method: 'PATCH',
+            body: { table_id: select.value ? Number(select.value) : null },
+          });
+          RMS.toast(select.value ? 'Reservation assigned to table' : 'Reservation unassigned');
+          await drawCal();
+        } catch (ex) {
+          RMS.toast(ex.message, 'error');
+          await drawCal();
+        }
       };
     }
 
@@ -209,7 +236,11 @@
     async function drawCal() {
       const month = monthKey();
       document.getElementById('month-label').textContent = cursor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-      const res = await RMS.api('/reservations/calendar?month=' + month);
+      const [res, tableRes] = await Promise.all([
+        RMS.api('/reservations/calendar?month=' + month),
+        RMS.api('/tables'),
+      ]);
+      floorTables = tableRes.data || [];
       byDay = {};
       res.data.forEach((r) => { (byDay[r.reservation_date] = byDay[r.reservation_date] || []).push(r); });
 

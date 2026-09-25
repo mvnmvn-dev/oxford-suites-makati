@@ -95,6 +95,68 @@ class ReservationService
             Response::success($out);
         }
 
+        if ($method === 'PATCH' && preg_match('/^(\d+)\/table$/', $sub, $m)) {
+            Auth::requireLogin(['admin', 'cashier']);
+            $reservationId = (int)$m[1];
+            $body = $this->body();
+            $tableId = !empty($body['table_id']) ? (int)$body['table_id'] : null;
+            $current = $pdo->prepare('SELECT * FROM reservations WHERE id = ?');
+            $current->execute([$reservationId]);
+            $reservation = $current->fetch();
+            if (!$reservation) Response::error('Reservation not found', 404);
+            if (!in_array($reservation['status'], ['pending', 'confirmed', 'seated'], true)) {
+                Response::error('Only active reservations can be assigned', 409);
+            }
+
+            $newTable = null;
+            if ($tableId) {
+                $tableStmt = $pdo->prepare('SELECT * FROM dining_tables WHERE id = ?');
+                $tableStmt->execute([$tableId]);
+                $newTable = $tableStmt->fetch();
+                if (!$newTable) Response::error('Table not found', 404);
+                if ((int)$newTable['capacity'] < (int)$reservation['party_size']) {
+                    Response::error('That table is too small for this party', 409);
+                }
+                if ($newTable['status'] === 'cleaning') Response::error('That table is being cleaned', 409);
+                $conflict = $pdo->prepare(
+                    "SELECT id FROM reservations
+                     WHERE table_id = ? AND id <> ? AND reservation_date = ?
+                       AND ABS(TIME_TO_SEC(TIMEDIFF(reservation_time, ?))) < 7200
+                       AND status IN ('pending','confirmed','seated') LIMIT 1"
+                );
+                $conflict->execute([$tableId, $reservationId, $reservation['reservation_date'], $reservation['reservation_time']]);
+                if ($conflict->fetch()) Response::error('That table is reserved near this time', 409);
+            }
+
+            $oldTableId = !empty($reservation['table_id']) ? (int)$reservation['table_id'] : null;
+            $pdo->beginTransaction();
+            try {
+                $pdo->prepare('UPDATE reservations SET table_id = ? WHERE id = ?')->execute([$tableId, $reservationId]);
+                if ($tableId) {
+                    $tableStatus = $reservation['status'] === 'seated' ? 'occupied' : 'reserved';
+                    $pdo->prepare("UPDATE dining_tables SET status = ? WHERE id = ? AND status <> 'cleaning'")
+                        ->execute([$tableStatus, $tableId]);
+                }
+                if ($oldTableId && $oldTableId !== $tableId) {
+                    $remaining = $pdo->prepare(
+                        "SELECT COUNT(*) FROM reservations WHERE table_id = ? AND id <> ? AND status IN ('pending','confirmed','seated')"
+                    );
+                    $remaining->execute([$oldTableId, $reservationId]);
+                    $orders = $pdo->prepare("SELECT COUNT(*) FROM orders WHERE table_id = ? AND status NOT IN ('paid','cancelled')");
+                    $orders->execute([$oldTableId]);
+                    if ((int)$remaining->fetchColumn() === 0 && (int)$orders->fetchColumn() === 0) {
+                        $pdo->prepare("UPDATE dining_tables SET status = 'available' WHERE id = ? AND status IN ('reserved','occupied')")
+                            ->execute([$oldTableId]);
+                    }
+                }
+                $pdo->commit();
+            } catch (Throwable $e) {
+                $pdo->rollBack();
+                Response::error($e->getMessage(), 400);
+            }
+            Response::success(['reservation_id' => $reservationId, 'table_id' => $tableId], 'Reservation table updated');
+        }
+
         if ($method === 'POST' && $sub === '') {
             $b = $this->body();
             if (empty($b['customer_name']) || empty($b['party_size']) || empty($b['reservation_date']) || empty($b['reservation_time'])) {

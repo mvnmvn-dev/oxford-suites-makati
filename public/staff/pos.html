@@ -106,6 +106,9 @@
     let openOrders = [];
     let newOrderItems = [];
     let newOrderCatalog = [];
+    let posBusy = false;
+    let lastPosSignature = '';
+    let posTimer = null;
     RMS.bindModalDismiss('pay-modal');
     RMS.bindModalDismiss('create-order-modal');
 
@@ -140,34 +143,63 @@
       document.getElementById('equal-fields').classList.toggle('hidden', !['equal', 'by_customer'].includes(mode));
     }
 
-    async function refresh() {
-      const orders = await RMS.api('/orders');
-      openOrders = orders.data.filter((o) => !['paid', 'cancelled'].includes(o.status));
-      document.getElementById('open-orders').innerHTML = openOrders.map((o) => `
-        <tr class="border-b border-line/60 hover:bg-parchment/50">
-          <td class="px-3 py-3 text-sm"><strong>${o.order_number}</strong><br><span class="text-xs text-charcoal-muted">#${o.id}</span></td>
-          <td class="px-3 py-3 text-sm">${o.table_number || '—'}</td>
-          <td class="px-3 py-3 text-sm font-semibold">${RMS.money(o.total)}</td>
-          <td class="px-3 py-3">${RMS.statusBadge(o.status)}</td>
-          <td class="px-3 py-3"><button type="button" class="btn-sm" data-pay="${o.id}">Pay</button></td>
-        </tr>`).join('') || '<tr><td colspan="5" class="px-3 py-8 text-center text-sm text-charcoal-muted">No open checks.</td></tr>';
+    function posSignature(orders, pays, circuitText) {
+      const orderKey = orders.map((o) => [o.id, o.order_number, o.table_number || '', o.total, o.status].join(':')).join('|');
+      const payKey = pays.map((p) => [p.id, p.receipt_no, p.amount, p.method, p.status].join(':')).join('|');
+      return orderKey + '::' + payKey + '::' + (circuitText || '');
+    }
 
-      const pays = await RMS.api('/payments');
-      document.getElementById('receipts').innerHTML = pays.data.slice(0, 8).map((p) =>
-        `<div class="flex items-center justify-between gap-2 border-b border-line py-2 text-sm"><span><strong>${p.receipt_no}</strong> · ${RMS.money(p.amount)} · ${p.method}</span>${p.status === 'completed' ? `<button type="button" class="btn-sm text-ember" data-refund="${p.id}">Refund</button>` : ''}</div>`
-      ).join('') || '<p class="py-4 text-sm text-charcoal-muted">No payments yet.</p>';
-
+    async function refresh(force) {
+      if (posBusy) return;
+      posBusy = true;
       try {
-        const cb = await RMS.api('/payments/circuit');
-        document.getElementById('circuit-status').textContent =
-          'Circuit breaker: ' + (cb.data.state || 'closed') + ' · failures ' + (cb.data.failures || 0);
-      } catch (_) {}
+        const [ordersRes, paysRes] = await Promise.all([
+          RMS.api('/orders'),
+          RMS.api('/payments'),
+        ]);
+        openOrders = (ordersRes.data || []).filter((o) => !['paid', 'cancelled'].includes(o.status));
+        const pays = (paysRes.data || []).slice(0, 8);
+        let circuitText = '';
+        try {
+          const cb = await RMS.api('/payments/circuit');
+          circuitText = 'Circuit breaker: ' + (cb.data.state || 'closed') + ' · failures ' + (cb.data.failures || 0);
+        } catch (_) {}
+
+        const signature = posSignature(openOrders, pays, circuitText);
+        if (!force && signature === lastPosSignature) return;
+        lastPosSignature = signature;
+
+        const ordersEl = document.getElementById('open-orders');
+        const receiptsEl = document.getElementById('receipts');
+        const circuitEl = document.getElementById('circuit-status');
+        if (!ordersEl || !receiptsEl) return;
+
+        ordersEl.innerHTML = openOrders.map((o) => `
+          <tr class="border-b border-line/60 hover:bg-parchment/50">
+            <td class="px-3 py-3 text-sm"><strong>${o.order_number}</strong><br><span class="text-xs text-charcoal-muted">#${o.id}</span></td>
+            <td class="px-3 py-3 text-sm">${o.table_number || '—'}</td>
+            <td class="px-3 py-3 text-sm font-semibold">${RMS.money(o.total)}</td>
+            <td class="px-3 py-3">${RMS.statusBadge(o.status)}</td>
+            <td class="px-3 py-3"><button type="button" class="btn-sm" data-pay="${o.id}">Pay</button></td>
+          </tr>`).join('') || '<tr><td colspan="5" class="px-3 py-8 text-center text-sm text-charcoal-muted">No open checks.</td></tr>';
+
+        receiptsEl.innerHTML = pays.map((p) =>
+          `<div class="flex items-center justify-between gap-2 border-b border-line py-2 text-sm"><span><strong>${p.receipt_no}</strong> · ${RMS.money(p.amount)} · ${p.method}</span>${p.status === 'completed' ? `<button type="button" class="btn-sm text-ember" data-refund="${p.id}">Refund</button>` : ''}</div>`
+        ).join('') || '<p class="py-4 text-sm text-charcoal-muted">No payments yet.</p>';
+
+        if (circuitEl && circuitText) circuitEl.textContent = circuitText;
+      } catch (_) {
+        /* keep last render on transient poll failures */
+      } finally {
+        posBusy = false;
+      }
     }
 
     RMS.mountStaffPage({
       title: 'POS & Billing',
       subtitle: 'Settle checks — equal / by-guest / by-item splits, mixed tenders, promos & loyalty vouchers.',
       async render(body) {
+        if (posTimer) clearInterval(posTimer);
         body.innerHTML = `
           <div class="mb-4 flex flex-wrap items-center gap-3">
             <p id="circuit-status" class="text-xs text-charcoal-muted"></p>
@@ -193,7 +225,7 @@
             </div>
           </div>`;
 
-        document.getElementById('btn-refresh').onclick = refresh;
+        document.getElementById('btn-refresh').onclick = () => refresh(true);
         document.getElementById('btn-create-order').onclick = async () => {
           try { await openCreateOrder(); } catch (ex) { RMS.toast(ex.message, 'error'); }
         };
@@ -228,7 +260,7 @@
             });
             RMS.closeModal('create-order-modal');
             RMS.toast('Order sent to kitchen · ' + res.data.order_number);
-            await refresh();
+            await refresh(true);
           } catch (ex) { RMS.toast(ex.message, 'error'); }
         };
         document.getElementById('open-orders').onclick = async (e) => {
@@ -264,12 +296,12 @@
           try {
             await RMS.api('/payments/refund/' + btn.dataset.refund, { method: 'POST', body: { manager_pin: managerPin } });
             RMS.toast('Payment refunded');
-            await refresh();
+            await refresh(true);
           } catch (ex) { RMS.toast(ex.message, 'error'); }
         };
-        await refresh();
-        setInterval(refresh, 12000);
-        window.addEventListener('rms:live', () => { refresh(); });
+        await refresh(true);
+        posTimer = setInterval(() => refresh(false), 12000);
+        window.addEventListener('rms:live', () => { refresh(false); });
       },
     });
 
@@ -397,10 +429,10 @@
         RMS.closeModal('pay-modal');
         const receipt = res.data.receipt_no || (res.data.receipts && res.data.receipts[0]) || '';
         RMS.toast((res.data.settled ? 'Settled' : 'Partial pay') + (receipt ? ' · ' + receipt : '') + ' · ' + RMS.money(res.data.paid_now || res.data.amount));
-        await refresh();
+        await refresh(true);
       } catch (ex) {
         RMS.toast(ex.message, 'error');
-        await refresh();
+        await refresh(true);
       }
     };
   </script>

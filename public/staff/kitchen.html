@@ -18,13 +18,16 @@
     let knownIds = new Set();
     let station = 'all';
     let muted = localStorage.getItem('oxford-kot-mute') === '1';
+    let kotBusy = false;
+    let lastBoardSignature = '';
+    let kotTimer = null;
 
     window.bump = async function (id, status) {
       try {
         await RMS.api(`/kitchen/tickets/${id}/status`, { method: 'PATCH', body: { status } });
         const labels = { in_progress: 'Ticket started', ready: 'Ticket marked ready', bumped: 'Ticket bumped / served' };
         RMS.toast(labels[status] || 'Ticket updated');
-        await loadTickets();
+        await loadTickets(true);
       } catch (ex) {
         RMS.toast(ex.message, 'error');
       }
@@ -48,16 +51,37 @@
 
     const accent = { new: 'border-t-clay', in_progress: 'border-t-brass', ready: 'border-t-sage' };
 
-    function ticketCard(t) {
-      const elapsed = Math.max(0, Number(t.elapsed_seconds || 0));
-      const elapsedLabel = Math.floor(elapsed / 60) + ':' + String(elapsed % 60).padStart(2, '0');
+    function formatClock(seconds) {
+      const s = Math.max(0, Number(seconds) || 0);
+      return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    }
+
+    function ticketStructureKey(t) {
+      return [
+        t.id,
+        t.status,
+        t.table_label || '',
+        t.order_number || '',
+        Number(t.is_overdue) === 1 ? 1 : 0,
+        Number(t.is_warning) === 1 ? 1 : 0,
+        t.order_notes || '',
+        (t.stations || []).join(','),
+        (t.items || []).map((i) => [i.quantity, i.item_name, i.status, i.allergens || '', i.notes || ''].join(':')).join('|'),
+      ].join('~');
+    }
+
+    function boardSignature(tickets) {
+      return tickets.map((t) => ticketStructureKey(t) + '#' + formatClock(t.elapsed_seconds) + '#' + formatClock(t.remaining_seconds)).join('||');
+    }
+
+    function ticketCard(t, animate) {
+      const elapsedLabel = formatClock(t.elapsed_seconds);
       const overdue = Number(t.is_overdue) === 1;
       const warning = Number(t.is_warning) === 1;
-      const remain = Math.max(0, Number(t.remaining_seconds || 0));
-      const remainLabel = Math.floor(remain / 60) + ':' + String(remain % 60).padStart(2, '0');
+      const remainLabel = formatClock(t.remaining_seconds);
       const borderCls = overdue ? 'border-ember bg-ember/5' : (warning ? 'border-clay bg-clay-soft/40' : 'border-line');
       return `
-        <article class="flex flex-col rounded-2xl border ${borderCls} border-t-[3px] ${accent[t.status] || 'border-t-line'} bg-parchment-light shadow-suite transition hover:-translate-y-0.5 hover:shadow-lift animate-ticket-in">
+        <article data-ticket-id="${t.id}" class="flex flex-col rounded-2xl border ${borderCls} border-t-[3px] ${accent[t.status] || 'border-t-line'} bg-parchment-light shadow-suite transition hover:-translate-y-0.5 hover:shadow-lift${animate ? ' animate-ticket-in' : ''}">
           <div class="border-b border-dashed border-line px-4 pb-3 pt-4">
             <div class="flex items-start justify-between gap-2">
               <div>
@@ -68,8 +92,8 @@
             </div>
             <div class="mt-2 flex flex-wrap gap-1">${(t.stations || []).map((s) => `<span class="rounded-full bg-parchment-deep px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-charcoal-muted">${s}</span>`).join('')}</div>
             <div class="mt-3 flex items-center justify-between text-xs ${overdue ? 'font-bold text-ember' : (warning ? 'font-semibold text-clay-deep' : 'text-charcoal-muted')}">
-              <span>⏱ ${elapsedLabel} elapsed</span>
-              <span>${overdue ? 'OVERDUE' : (warning ? 'SLA warn · ' + remainLabel + ' left' : 'Countdown ' + remainLabel)}</span>
+              <span data-elapsed>⏱ ${elapsedLabel} elapsed</span>
+              <span data-countdown>${overdue ? 'OVERDUE' : (warning ? 'SLA warn · ' + remainLabel + ' left' : 'Countdown ' + remainLabel)}</span>
             </div>
           </div>
           <ul class="flex-1 px-4 py-2">
@@ -92,7 +116,7 @@
         </article>`;
     }
 
-    function column(title, tone, tickets, emptyHint) {
+    function column(title, tone, tickets, emptyHint, animateIds) {
       const bar = { clay: 'bg-clay', brass: 'bg-brass', sage: 'bg-sage' }[tone] || 'bg-line';
       return `
         <div class="flex min-h-[420px] flex-col rounded-2xl border border-line bg-surface/60">
@@ -103,46 +127,111 @@
             </div>
             <span class="rounded-full bg-parchment-deep px-2.5 py-0.5 text-[11px] font-semibold text-charcoal-muted">${tickets.length}</span>
           </div>
-          <div class="flex flex-1 flex-col gap-3 overflow-y-auto p-3">
-            ${tickets.length ? tickets.map(ticketCard).join('') : `
+          <div class="flex flex-1 flex-col gap-3 overflow-y-auto p-3" data-kot-scroll>
+            ${tickets.length ? tickets.map((t) => ticketCard(t, animateIds.has(t.id))).join('') : `
               <div class="flex flex-1 items-center justify-center rounded-xl border border-dashed border-line px-4 py-10 text-center text-sm text-charcoal-muted">${emptyHint}</div>`}
           </div>
         </div>`;
     }
 
-    async function loadTickets() {
-      const q = station && station !== 'all' ? '?station=' + encodeURIComponent(station) : '';
-      const res = await RMS.api('/kitchen/tickets' + q);
-      const board = document.getElementById('kot-board');
+    function updateCount(tickets) {
       const countEl = document.getElementById('kot-count');
-      const tickets = res.data || [];
-      const ids = new Set(tickets.map((t) => t.id));
-      let hasNew = false;
-      ids.forEach((id) => { if (!knownIds.has(id)) hasNew = true; });
-      if (knownIds.size && hasNew) beep();
-      knownIds = ids;
+      if (!countEl) return;
       const overdue = tickets.filter((t) => Number(t.is_overdue) === 1).length;
-      if (countEl) {
-        countEl.textContent = tickets.length + (tickets.length === 1 ? ' open ticket' : ' open tickets') +
-          (overdue ? ' · ' + overdue + ' overdue' : '');
-        countEl.classList.toggle('text-ember', overdue > 0);
+      countEl.textContent = tickets.length + (tickets.length === 1 ? ' open ticket' : ' open tickets') +
+        (overdue ? ' · ' + overdue + ' overdue' : '');
+      countEl.classList.toggle('text-ember', overdue > 0);
+    }
+
+    function patchTimers(tickets) {
+      tickets.forEach((t) => {
+        const card = document.querySelector(`[data-ticket-id="${t.id}"]`);
+        if (!card) return;
+        const overdue = Number(t.is_overdue) === 1;
+        const warning = Number(t.is_warning) === 1;
+        const elapsedEl = card.querySelector('[data-elapsed]');
+        const countdownEl = card.querySelector('[data-countdown]');
+        if (elapsedEl) elapsedEl.textContent = '⏱ ' + formatClock(t.elapsed_seconds) + ' elapsed';
+        if (countdownEl) {
+          countdownEl.textContent = overdue
+            ? 'OVERDUE'
+            : (warning ? 'SLA warn · ' + formatClock(t.remaining_seconds) + ' left' : 'Countdown ' + formatClock(t.remaining_seconds));
+        }
+        const timerRow = elapsedEl && elapsedEl.parentElement;
+        if (timerRow) {
+          timerRow.className = 'mt-3 flex items-center justify-between text-xs ' +
+            (overdue ? 'font-bold text-ember' : (warning ? 'font-semibold text-clay-deep' : 'text-charcoal-muted'));
+        }
+      });
+    }
+
+    async function loadTickets(force) {
+      if (kotBusy) return;
+      kotBusy = true;
+      try {
+        const q = station && station !== 'all' ? '?station=' + encodeURIComponent(station) : '';
+        const res = await RMS.api('/kitchen/tickets' + q);
+        const board = document.getElementById('kot-board');
+        if (!board) return;
+        const tickets = res.data || [];
+        const ids = new Set(tickets.map((t) => t.id));
+        const animateIds = new Set();
+        let hasNew = false;
+        ids.forEach((id) => {
+          if (!knownIds.has(id)) {
+            hasNew = true;
+            animateIds.add(id);
+          }
+        });
+        if (knownIds.size && hasNew) beep();
+
+        const signature = boardSignature(tickets);
+        const structureNow = tickets.map(ticketStructureKey).join('||');
+        const structurePrev = lastBoardSignature ? lastBoardSignature.split('||').map((p) => p.split('#')[0]).join('||') : '';
+        const structureChanged = force || structureNow !== structurePrev;
+
+        updateCount(tickets);
+
+        if (!structureChanged && board.children.length) {
+          patchTimers(tickets);
+          lastBoardSignature = signature;
+          knownIds = ids;
+          return;
+        }
+
+        if (!force && signature === lastBoardSignature && board.children.length) {
+          knownIds = ids;
+          return;
+        }
+
+        const scrollTops = [...board.querySelectorAll('[data-kot-scroll]')].map((el) => el.scrollTop);
+        const groups = {
+          new: tickets.filter((t) => t.status === 'new'),
+          in_progress: tickets.filter((t) => t.status === 'in_progress'),
+          ready: tickets.filter((t) => t.status === 'ready'),
+        };
+        board.innerHTML = [
+          column('New', 'clay', groups.new, 'No new tickets', animateIds),
+          column('In progress', 'brass', groups.in_progress, 'Nothing on the pass', animateIds),
+          column('Ready', 'sage', groups.ready, 'Nothing waiting to bump', animateIds),
+        ].join('');
+        board.querySelectorAll('[data-kot-scroll]').forEach((el, i) => {
+          if (scrollTops[i] != null) el.scrollTop = scrollTops[i];
+        });
+        lastBoardSignature = signature;
+        knownIds = ids;
+      } catch (_) {
+        /* keep last board on transient poll failures */
+      } finally {
+        kotBusy = false;
       }
-      const groups = {
-        new: tickets.filter((t) => t.status === 'new'),
-        in_progress: tickets.filter((t) => t.status === 'in_progress'),
-        ready: tickets.filter((t) => t.status === 'ready'),
-      };
-      board.innerHTML = [
-        column('New', 'clay', groups.new, 'No new tickets'),
-        column('In progress', 'brass', groups.in_progress, 'Nothing on the pass'),
-        column('Ready', 'sage', groups.ready, 'Nothing waiting to bump'),
-      ].join('');
     }
 
     RMS.mountStaffPage({
       title: 'Kitchen (KOT)',
       subtitle: 'Timers, overdue alerts, station filters, and sound on new tickets.',
       async render(body) {
+        if (kotTimer) clearInterval(kotTimer);
         body.innerHTML = `
           <div class="mb-5 flex flex-wrap items-center gap-3">
             <div class="header-chip">
@@ -160,7 +249,7 @@
           </div>
           <div id="kot-board" class="grid flex-1 gap-4 lg:grid-cols-3"></div>`;
 
-        document.getElementById('kot-refresh').onclick = loadTickets;
+        document.getElementById('kot-refresh').onclick = () => loadTickets(true);
         document.getElementById('mute-toggle').onclick = () => {
           muted = !muted;
           localStorage.setItem('oxford-kot-mute', muted ? '1' : '0');
@@ -174,11 +263,12 @@
             b.classList.toggle('!bg-ember', b.dataset.station === station);
             b.classList.toggle('!text-white', b.dataset.station === station);
           });
-          loadTickets();
+          lastBoardSignature = '';
+          loadTickets(true);
         };
-        await loadTickets();
-        setInterval(loadTickets, 8000);
-        window.addEventListener('rms:live', () => { loadTickets(); });
+        await loadTickets(true);
+        kotTimer = setInterval(() => loadTickets(false), 8000);
+        window.addEventListener('rms:live', () => { loadTickets(false); });
       },
     });
   </script>

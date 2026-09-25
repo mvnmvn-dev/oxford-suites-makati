@@ -77,11 +77,62 @@
     </div>
   </div>
 
+  <div id="create-order-modal" class="rms-modal-backdrop hidden" role="dialog" aria-modal="true">
+    <div class="rms-modal max-w-lg">
+      <h2>Create order for reserved guest</h2>
+      <p class="mt-1 text-sm text-charcoal-muted">No guest account is required. The order will be linked to the guest name and table.</p>
+      <form id="create-order-form" class="mt-4 space-y-3">
+        <div class="grid grid-cols-2 gap-2">
+          <input id="new-order-guest" class="field" required placeholder="Guest name" />
+          <select id="new-order-table" class="field" required><option value="">Select table</option></select>
+        </div>
+        <div class="grid grid-cols-[1fr_80px_auto] gap-2">
+          <select id="new-order-item" class="field"><option value="">Select menu item</option></select>
+          <input id="new-order-qty" class="field" type="number" min="1" value="1" aria-label="Quantity" />
+          <button type="button" id="new-order-add" class="btn-secondary">Add</button>
+        </div>
+        <div id="new-order-lines" class="space-y-2 rounded-xl border border-line bg-parchment/50 p-3 text-sm"></div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" class="btn-secondary" data-modal-close>Cancel</button>
+          <button type="submit" class="btn-primary">Send to kitchen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script src="../assets/js/app.js?v=17"></script>
   <script src="../assets/js/staff-shell.js?v=10"></script>
   <script>
     let openOrders = [];
+    let newOrderItems = [];
+    let newOrderCatalog = [];
     RMS.bindModalDismiss('pay-modal');
+    RMS.bindModalDismiss('create-order-modal');
+
+    function renderNewOrderLines() {
+      const root = document.getElementById('new-order-lines');
+      root.innerHTML = newOrderItems.length ? newOrderItems.map((item, index) =>
+        `<div class="flex items-center justify-between gap-2"><span>${item.quantity}× ${item.name}</span><button type="button" class="btn-sm" data-remove-new-line="${index}">Remove</button></div>`
+      ).join('') : '<p class="text-xs text-charcoal-muted">No items added yet.</p>';
+    }
+
+    async function openCreateOrder() {
+      const [menu, tables, reservations] = await Promise.all([
+        RMS.api('/menu/items'),
+        RMS.api('/tables'),
+        RMS.api('/reservations?date=' + encodeURIComponent(new Date().toLocaleDateString('en-CA'))),
+      ]);
+      const items = (menu.data || []).filter((item) => Number(item.is_available) !== 0);
+      newOrderCatalog = items;
+      document.getElementById('new-order-item').innerHTML = '<option value="">Select menu item</option>' + items.map((item) => `<option value="${item.id}">${item.name} · ${RMS.money(item.price)}</option>`).join('');
+      document.getElementById('new-order-table').innerHTML = '<option value="">Select table</option>' + (tables.data || []).filter((t) => t.status !== 'cleaning').map((t) => `<option value="${t.id}">${t.table_number} · ${t.capacity} seats</option>`).join('');
+      const guest = (reservations.data || []).find((r) => ['pending', 'confirmed', 'seated'].includes(String(r.status)));
+      document.getElementById('new-order-guest').value = guest?.customer_name || '';
+      if (guest?.table_id) document.getElementById('new-order-table').value = String(guest.table_id);
+      newOrderItems = [];
+      renderNewOrderLines();
+      RMS.openModal('create-order-modal');
+    }
 
     function syncSplitUi() {
       const mode = document.getElementById('split-mode').value;
@@ -121,6 +172,7 @@
           <div class="mb-4 flex flex-wrap items-center gap-3">
             <p id="circuit-status" class="text-xs text-charcoal-muted"></p>
             <div class="flex-1"></div>
+            <button type="button" id="btn-create-order" class="btn-primary !text-xs">Create order</button>
             <button type="button" id="btn-refresh" class="btn-secondary !text-xs">Refresh</button>
           </div>
           <div class="grid gap-5 lg:grid-cols-[1.35fr_1fr]">
@@ -142,6 +194,43 @@
           </div>`;
 
         document.getElementById('btn-refresh').onclick = refresh;
+        document.getElementById('btn-create-order').onclick = async () => {
+          try { await openCreateOrder(); } catch (ex) { RMS.toast(ex.message, 'error'); }
+        };
+        document.getElementById('new-order-add').onclick = () => {
+          const id = Number(document.getElementById('new-order-item').value);
+          const item = newOrderCatalog.find((x) => Number(x.id) === id);
+          const quantity = Math.max(1, Number(document.getElementById('new-order-qty').value) || 1);
+          if (!item) return RMS.toast('Select a menu item first', 'error');
+          const existing = newOrderItems.find((x) => Number(x.menu_item_id) === id);
+          if (existing) existing.quantity += quantity;
+          else newOrderItems.push({ menu_item_id: id, name: item.name, quantity });
+          renderNewOrderLines();
+        };
+        document.getElementById('new-order-lines').onclick = (event) => {
+          const remove = event.target.closest('[data-remove-new-line]');
+          if (!remove) return;
+          newOrderItems.splice(Number(remove.dataset.removeNewLine), 1);
+          renderNewOrderLines();
+        };
+        document.getElementById('create-order-form').onsubmit = async (event) => {
+          event.preventDefault();
+          if (!newOrderItems.length) return RMS.toast('Add at least one menu item', 'error');
+          try {
+            const res = await RMS.api('/orders', {
+              method: 'POST',
+              body: {
+                table_id: Number(document.getElementById('new-order-table').value),
+                customer_name: document.getElementById('new-order-guest').value.trim(),
+                source: 'pos',
+                items: newOrderItems.map(({ menu_item_id, quantity }) => ({ menu_item_id, quantity })),
+              },
+            });
+            RMS.closeModal('create-order-modal');
+            RMS.toast('Order sent to kitchen · ' + res.data.order_number);
+            await refresh();
+          } catch (ex) { RMS.toast(ex.message, 'error'); }
+        };
         document.getElementById('open-orders').onclick = async (e) => {
           const btn = e.target.closest('[data-pay]');
           if (!btn) return;

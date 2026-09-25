@@ -467,6 +467,14 @@ html.dark .bg-banner-ember {
 .header-dropdown-wrap {
   position: relative;
 }
+.guest-header {
+  position: sticky;
+  top: 0;
+  z-index: 100 !important;
+}
+.guest-header .header-dropdown {
+  z-index: 110;
+}
 .header-dropdown {
   position: absolute;
   right: 0;

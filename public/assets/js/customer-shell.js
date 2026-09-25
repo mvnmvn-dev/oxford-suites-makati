@@ -92,7 +92,7 @@
       : `<a href="login.html" class="rounded-lg bg-[#A8342A] px-3 py-2 text-xs font-bold uppercase tracking-wide text-white hover:bg-[#8F2C24]">Sign in</a>`;
 
     return `
-    <header class="sticky top-0 z-40 border-b border-[#D9CFC2] bg-[#FFFCFA]/95 backdrop-blur-sm">
+    <header class="guest-header sticky top-0 z-40 border-b border-[#D9CFC2] bg-[#FFFCFA]/95 backdrop-blur-sm">
       <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
         <a href="${user ? 'index.html' : 'login.html'}" class="brand-mark">
           <img src="../assets/img/oxford-logo.jpg" alt="Oxford Suites" class="brand-logo" />

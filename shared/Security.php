@@ -44,7 +44,7 @@ class Security
         // Staff pages can remain open throughout a service shift. Keep the
         // session alive while the user is active instead of expiring an admin
         // workspace after 15 minutes and leaving its cached UI looking usable.
-        $timeout = match ($user['role'] ?? '') { 'cashier' => 7200, 'admin' => 28800, 'kitchen' => 28800, default => 7200 };
+        $timeout = match ($user['role'] ?? '') { 'cashier' => 28800, 'admin' => 28800, 'kitchen' => 28800, default => 7200 };
         if (!empty($_SESSION['last_activity']) && time() - (int)$_SESSION['last_activity'] > $timeout) {
             $_SESSION = [];
             session_destroy();

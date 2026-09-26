@@ -166,10 +166,24 @@ class ReservationService
             if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $reservationDate)) {
                 Response::error('reservation_date must be YYYY-MM-DD');
             }
+            $reservationTime = (string)$b['reservation_time'];
+            if (!preg_match('/^\d{1,2}:\d{2}(:\d{2})?$/', $reservationTime)) {
+                Response::error('reservation_time must be HH:MM or HH:MM:SS');
+            }
+            if (substr_count($reservationTime, ':') === 1) {
+                $reservationTime .= ':00';
+            }
+            $parts = array_map('intval', explode(':', $reservationTime));
+            $reservationTime = sprintf('%02d:%02d:%02d', $parts[0], $parts[1], $parts[2] ?? 0);
+
             $today = date('Y-m-d');
             if ($reservationDate < $today) {
                 Response::error('Cannot book a reservation for a past date');
             }
+            if ($reservationDate === $today && $reservationTime <= date('H:i:s')) {
+                Response::error('Cannot book a reservation for a time that has already passed');
+            }
+            $b['reservation_time'] = $reservationTime;
             $stmt = $pdo->prepare(
                 'INSERT INTO reservations (customer_id, customer_name, customer_email, customer_phone, party_size, table_id, reservation_date, reservation_time, status, notes, seating_pref)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'

@@ -112,10 +112,43 @@
           const d = String(date.getDate()).padStart(2, '0');
           return `${y}-${m}-${d}`;
         }
+        function localTimeString(date = new Date()) {
+          const h = String(date.getHours()).padStart(2, '0');
+          const m = String(date.getMinutes()).padStart(2, '0');
+          return `${h}:${m}`;
+        }
+        function isPastDateTime(dateStr, timeStr) {
+          if (!dateStr || !timeStr) return false;
+          const today = localDateString();
+          if (dateStr < today) return true;
+          if (dateStr > today) return false;
+          const t = timeStr.length === 5 ? timeStr + ':00' : timeStr;
+          const now = localTimeString() + ':00';
+          return t <= now;
+        }
+        function syncTimeMin() {
+          const dateInput = document.getElementById('date');
+          const timeInput = document.getElementById('time');
+          if (dateInput.value === localDateString()) {
+            const minTime = localTimeString();
+            timeInput.min = minTime;
+            if (timeInput.value && timeInput.value <= minTime) {
+              // Snap to the next whole minute after now so the slot is still bookable.
+              const d = new Date();
+              d.setMinutes(d.getMinutes() + 1, 0, 0);
+              timeInput.value = localTimeString(d);
+            }
+          } else {
+            timeInput.removeAttribute('min');
+          }
+        }
         const todayStr = localDateString();
         const dateInput = document.getElementById('date');
         dateInput.min = todayStr;
         dateInput.value = todayStr;
+        syncTimeMin();
+        dateInput.addEventListener('change', syncTimeMin);
+        document.getElementById('time').addEventListener('change', syncTimeMin);
 
         let calCursor = new Date();
         calCursor.setDate(1);
@@ -233,9 +266,16 @@
           e.preventDefault();
           const msg = document.getElementById('msg');
           const reservationDate = document.getElementById('date').value;
+          const reservationTime = document.getElementById('time').value;
           if (reservationDate < localDateString()) {
             msg.className = 'text-sm text-[#A8342A]';
             msg.textContent = 'Cannot book a reservation for a past date';
+            RMS.toast(msg.textContent, 'error');
+            return;
+          }
+          if (isPastDateTime(reservationDate, reservationTime)) {
+            msg.className = 'text-sm text-[#A8342A]';
+            msg.textContent = 'Cannot book a reservation for a time that has already passed';
             RMS.toast(msg.textContent, 'error');
             return;
           }

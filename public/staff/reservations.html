@@ -103,11 +103,66 @@
       return cursor.getFullYear() + '-' + String(cursor.getMonth() + 1).padStart(2, '0');
     }
 
+    function isPastDate(dateStr) {
+      return !!dateStr && dateStr < localDateString();
+    }
+
+    function localTimeString(date = new Date()) {
+      const h = String(date.getHours()).padStart(2, '0');
+      const m = String(date.getMinutes()).padStart(2, '0');
+      return `${h}:${m}`;
+    }
+
+    function isPastDateTime(dateStr, timeStr) {
+      if (!dateStr || !timeStr) return false;
+      const today = localDateString();
+      if (dateStr < today) return true;
+      if (dateStr > today) return false;
+      const t = timeStr.length === 5 ? timeStr + ':00' : timeStr;
+      return t <= localTimeString() + ':00';
+    }
+
+    function syncStaffTimeMin() {
+      const dateInput = document.getElementById('r-date');
+      const timeInput = document.getElementById('r-time');
+      if (!dateInput || !timeInput) return;
+      if (dateInput.value === localDateString()) {
+        const minTime = localTimeString();
+        timeInput.min = minTime;
+        if (!timeInput.value || timeInput.value <= minTime) {
+          const d = new Date();
+          d.setMinutes(d.getMinutes() + 1, 0, 0);
+          const dinner = '19:00';
+          timeInput.value = dinner > minTime ? dinner : localTimeString(d);
+        }
+      } else {
+        timeInput.removeAttribute('min');
+      }
+    }
+
+    function syncBookActions(ds) {
+      const canBook = !!ds && !isPastDate(ds);
+      const bookBtn = document.getElementById('btn-book-day');
+      if (bookBtn) {
+        bookBtn.disabled = !canBook;
+        bookBtn.hidden = !canBook;
+        bookBtn.title = canBook ? 'Book this day' : 'Past dates are view-only';
+      }
+      const newBtn = document.getElementById('btn-new');
+      if (newBtn) {
+        // Top "New reservation" always allowed — opens for today when a past day is selected.
+        newBtn.disabled = false;
+        newBtn.title = isPastDate(ds)
+          ? 'Opens a booking for today (selected day is in the past)'
+          : 'New reservation';
+      }
+    }
+
     function openNewReservation(dateStr) {
       const today = localDateString();
       let bookDate = dateStr || today;
-      if (bookDate < today) {
-        RMS.toast('Cannot book a reservation for a past date', 'error');
+      if (isPastDate(bookDate)) {
+        RMS.toast('Past dates are view-only. Book for today or a future date.', 'error');
         return;
       }
       document.getElementById('res-form').reset();
@@ -117,6 +172,7 @@
       const dateInput = document.getElementById('r-date');
       dateInput.min = today;
       dateInput.value = bookDate;
+      syncStaffTimeMin();
       RMS.openModal('res-modal');
     }
 
@@ -142,14 +198,7 @@
 
       selectedDay = ds;
       title.textContent = formatDayLabel(ds);
-
-      const bookBtn = document.getElementById('btn-book-day');
-      if (bookBtn) {
-        const canBook = !!ds && ds >= localDateString();
-        bookBtn.disabled = !canBook;
-        bookBtn.classList.toggle('opacity-50', !canBook);
-        bookBtn.title = canBook ? '' : 'Cannot book a reservation for a past date';
-      }
+      syncBookActions(ds);
 
       const rows = ((byDay[ds] || [])).slice().sort((a, b) =>
         String(a.reservation_time || '').localeCompare(String(b.reservation_time || ''))
@@ -171,13 +220,21 @@
       }
 
       if (!rows.length) {
-        list.innerHTML = `
-          <div class="flex flex-col items-center justify-center px-4 py-14 text-center">
-            <p class="text-sm font-medium text-charcoal">Free evening</p>
-            <p class="mt-1 text-xs text-charcoal-muted">No reservations on this date.</p>
-            <button type="button" id="btn-empty-book" class="btn-primary mt-4">Book this day</button>
-          </div>`;
-        document.getElementById('btn-empty-book')?.addEventListener('click', () => openNewReservation(ds));
+        if (isPastDate(ds)) {
+          list.innerHTML = `
+            <div class="flex flex-col items-center justify-center px-4 py-14 text-center">
+              <p class="text-sm font-medium text-charcoal">No reservations</p>
+              <p class="mt-1 text-xs text-charcoal-muted">Past dates are view-only — new bookings are not allowed.</p>
+            </div>`;
+        } else {
+          list.innerHTML = `
+            <div class="flex flex-col items-center justify-center px-4 py-14 text-center">
+              <p class="text-sm font-medium text-charcoal">Free evening</p>
+              <p class="mt-1 text-xs text-charcoal-muted">No reservations on this date.</p>
+              <button type="button" id="btn-empty-book" class="btn-primary mt-4">Book this day</button>
+            </div>`;
+          document.getElementById('btn-empty-book')?.addEventListener('click', () => openNewReservation(ds));
+        }
         return;
       }
 
@@ -363,8 +420,20 @@
           selectedDay = localDateString();
           drawCal();
         };
-        document.getElementById('btn-new').onclick = () => openNewReservation(selectedDay || localDateString());
-        document.getElementById('btn-book-day').onclick = () => openNewReservation(selectedDay || localDateString());
+        document.getElementById('btn-new').onclick = () => {
+          const day = selectedDay || localDateString();
+          // Never open the modal for a past selected day — book today instead.
+          openNewReservation(isPastDate(day) ? localDateString() : day);
+        };
+        document.getElementById('btn-book-day').onclick = () => {
+          if (isPastDate(selectedDay)) {
+            RMS.toast('Past dates are view-only. You can only review who reserved that day.', 'error');
+            return;
+          }
+          openNewReservation(selectedDay || localDateString());
+        };
+        document.getElementById('r-date').addEventListener('change', syncStaffTimeMin);
+        document.getElementById('r-time').addEventListener('change', syncStaffTimeMin);
         document.getElementById('cal-grid').addEventListener('click', (e) => {
           const cell = e.target.closest('[data-day]');
           if (!cell) return;
@@ -384,8 +453,13 @@
       e.preventDefault();
       try {
         const date = document.getElementById('r-date').value;
+        const time = document.getElementById('r-time').value;
         if (date < localDateString()) {
           RMS.toast('Cannot book a reservation for a past date', 'error');
+          return;
+        }
+        if (isPastDateTime(date, time)) {
+          RMS.toast('Cannot book a reservation for a time that has already passed', 'error');
           return;
         }
         await RMS.api('/reservations', {
@@ -396,7 +470,7 @@
             customer_phone: document.getElementById('r-phone').value,
             party_size: Number(document.getElementById('r-party').value),
             reservation_date: date,
-            reservation_time: document.getElementById('r-time').value,
+            reservation_time: time,
             notes: document.getElementById('r-notes').value,
             status: document.getElementById('r-status').value,
           },

@@ -27,10 +27,12 @@
   </header>
   <main class="mx-auto max-w-2xl px-4 py-8">
     <div id="track-root" class="rms-skeleton rounded-2xl border border-[#D9CFC2] bg-[#FFFCFA] p-6 min-h-[220px]"></div>
-    <a href="menu.html" class="mt-6 inline-flex rounded-xl bg-[#A8342A] px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-white">Back to menu</a>
+    <a id="back-menu" href="menu.html" class="mt-6 inline-flex rounded-xl bg-[#A8342A] px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-white">Back to menu</a>
   </main>
   <script src="../assets/js/app.js?v=4"></script>
+  <script src="../assets/js/customer-shell.js?v=3"></script>
   <script>
+    document.getElementById('back-menu').href = RMS.customerMenuHref();
     const id = new URLSearchParams(location.search).get('id') || localStorage.getItem('oxford-last-order-id');
     const stages = ['pending', 'preparing', 'ready', 'served'];
     const stageLabels = { pending: 'Received', preparing: 'Preparing', ready: 'Ready', served: 'Served' };

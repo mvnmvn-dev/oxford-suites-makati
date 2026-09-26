@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Scan table QR — Oxford Suites</title>
+  <link rel="icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <link rel="shortcut icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <script src="../assets/js/theme-boot.js"></script>
+  <script>try { if (!localStorage.getItem('oxford-rms-theme')) localStorage.setItem('oxford-rms-theme', 'light'); } catch (e) {}</script>
+  <link rel="stylesheet" href="../assets/css/tailwind.css" />
+  <link rel="stylesheet" href="../assets/css/app.css?v=17" />
+</head>
+<body class="m-0">
+  <div id="app-root" data-active="scan"></div>
+  <script src="../assets/js/app.js?v=4"></script>
+  <script src="../assets/js/customer-shell.js?v=3"></script>
+  <script>
+    RMS.mountCustomerPage({
+      active: 'scan',
+      requireAuth: false,
+      title: 'Scan table QR',
+      subtitle: 'Connect your phone to your table so you can order and call the suite team.',
+      async render(body) {
+        const linked = RMS.readTableSession();
+        body.innerHTML = `
+          <div class="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
+            <section class="overflow-hidden rounded-2xl border border-[#D9CFC2] bg-[#FFFCFA] p-5 sm:p-6">
+              <p class="text-[11px] font-bold uppercase tracking-[0.14em] text-[#A67C3A]">Camera</p>
+              <h2 class="mt-1 font-display text-xl font-semibold text-[#241E1C]">Scan the code on your table</h2>
+              <p class="mt-1 text-sm text-[#6B635C]">Point your camera at the table tent QR. On some desktops, use the manual options instead.</p>
+
+              <div class="qr-card relative mt-4 overflow-hidden bg-[#111]">
+                <video id="scan-video" class="aspect-square w-full object-cover" playsinline muted></video>
+                <div id="scan-overlay" class="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <div class="h-44 w-44 rounded-2xl border-2 border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]"></div>
+                </div>
+                <div id="scan-idle" class="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#1C1412] p-6 text-center text-white">
+                  <svg class="h-10 w-10 text-[#E2C48A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M20 14v6h-6"/></svg>
+                  <p class="text-sm text-white/80">Camera starts when you tap below.</p>
+                </div>
+              </div>
+
+              <div class="mt-4 flex flex-wrap gap-2">
+                <button type="button" id="btn-start-scan" class="btn-primary">Start camera scan</button>
+                <button type="button" id="btn-stop-scan" class="btn-secondary hidden">Stop camera</button>
+              </div>
+              <p id="scan-status" class="mt-3 text-sm text-[#6B635C]"></p>
+            </section>
+
+            <div class="space-y-5">
+              <section class="rounded-2xl border border-[#D9CFC2] bg-[#FFFCFA] p-5 sm:p-6">
+                <p class="text-[11px] font-bold uppercase tracking-[0.14em] text-[#A67C3A]">Manual</p>
+                <h2 class="mt-1 font-display text-xl font-semibold text-[#241E1C]">Enter table number</h2>
+                <p class="mt-1 text-sm text-[#6B635C]">Use the number printed on your table tent (for example T3).</p>
+                <form id="table-form" class="mt-4 space-y-3">
+                  <input id="table-number" class="field" placeholder="e.g. T3" autocomplete="off" required />
+                  <button type="submit" class="btn-primary w-full sm:w-auto">Connect table</button>
+                </form>
+              </section>
+
+              <section class="rounded-2xl border border-[#D9CFC2] bg-[#FFFCFA] p-5 sm:p-6">
+                <p class="text-[11px] font-bold uppercase tracking-[0.14em] text-[#A67C3A]">Paste code</p>
+                <h2 class="mt-1 font-display text-lg font-semibold text-[#241E1C]">QR link or token</h2>
+                <form id="token-form" class="mt-4 space-y-3">
+                  <input id="token-raw" class="field" placeholder="Paste QR link or qr_… token" autocomplete="off" />
+                  <button type="submit" class="btn-secondary w-full sm:w-auto">Use code</button>
+                </form>
+              </section>
+
+              <section id="linked-card" class="rounded-2xl border border-[#D9CFC2] bg-[#F6F1E9] p-5 ${linked ? '' : 'hidden'}">
+                <p class="text-[11px] font-bold uppercase tracking-[0.14em] text-[#A67C3A]">Connected</p>
+                <h2 class="mt-1 font-display text-lg font-semibold text-[#241E1C]" id="linked-label">
+                  ${linked?.table_number ? ('Table ' + linked.table_number) : 'Table linked'}
+                </h2>
+                <p class="mt-1 text-sm text-[#6B635C]">You can order from the digital menu and call service once signed in.</p>
+                <div class="mt-4 flex flex-wrap gap-2">
+                  <a id="linked-menu" href="${RMS.customerMenuHref()}" class="btn-primary">Open menu</a>
+                  <button type="button" id="btn-unlink" class="btn-secondary">Disconnect</button>
+                </div>
+              </section>
+            </div>
+          </div>`;
+
+        const statusEl = document.getElementById('scan-status');
+        const video = document.getElementById('scan-video');
+        const idle = document.getElementById('scan-idle');
+        const btnStart = document.getElementById('btn-start-scan');
+        const btnStop = document.getElementById('btn-stop-scan');
+        let stream = null;
+        let detector = null;
+        let scanTimer = null;
+        let connecting = false;
+
+        function setStatus(msg, isError) {
+          statusEl.textContent = msg || '';
+          statusEl.className = 'mt-3 text-sm ' + (isError ? 'text-[#A8342A]' : 'text-[#6B635C]');
+        }
+
+        function showLinked(tableNumber, token) {
+          const card = document.getElementById('linked-card');
+          card.classList.remove('hidden');
+          document.getElementById('linked-label').textContent = tableNumber
+            ? ('Table ' + tableNumber)
+            : 'Table linked';
+          document.getElementById('linked-menu').href = 'menu.html?token=' + encodeURIComponent(token);
+        }
+
+        async function connectWithToken(token, meta) {
+          if (connecting) return;
+          const clean = String(token || '').trim();
+          if (!clean) {
+            setStatus('No QR token found.', true);
+            return;
+          }
+          connecting = true;
+          setStatus('Connecting to your table…');
+          try {
+            const res = await RMS.api('/tables/token/' + encodeURIComponent(clean));
+            const table = res.data;
+            RMS.saveTableSession({
+              token: table.qr_token || clean,
+              table_id: table.id,
+              table_number: table.table_number,
+              session_token: table.session_token,
+            });
+            stopScan();
+            showLinked(table.table_number, table.qr_token || clean);
+            RMS.toast('Connected to table ' + table.table_number);
+            setTimeout(() => {
+              location.href = 'menu.html?token=' + encodeURIComponent(table.qr_token || clean);
+            }, 500);
+          } catch (ex) {
+            setStatus(ex.message || 'Could not connect that table QR.', true);
+            RMS.toast(ex.message || 'Invalid table QR', 'error');
+            connecting = false;
+          }
+        }
+
+        async function connectFromRaw(raw) {
+          const token = RMS.extractQrToken(raw);
+          if (token) {
+            await connectWithToken(token);
+            return;
+          }
+          const maybeNumber = String(raw || '').trim();
+          if (!maybeNumber) {
+            setStatus('Enter a table number or paste a QR link.', true);
+            return;
+          }
+          connecting = true;
+          setStatus('Looking up table…');
+          try {
+            const res = await RMS.api('/tables/number/' + encodeURIComponent(maybeNumber));
+            await connectWithToken(res.data.qr_token, res.data);
+          } catch (ex) {
+            connecting = false;
+            setStatus(ex.message || 'Table not found.', true);
+            RMS.toast(ex.message || 'Table not found', 'error');
+          }
+        }
+
+        function stopScan() {
+          if (scanTimer) {
+            clearInterval(scanTimer);
+            scanTimer = null;
+          }
+          if (stream) {
+            stream.getTracks().forEach((t) => t.stop());
+            stream = null;
+          }
+          video.srcObject = null;
+          idle.classList.remove('hidden');
+          btnStop.classList.add('hidden');
+          btnStart.classList.remove('hidden');
+        }
+
+        async function startScan() {
+          if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+            setStatus('Camera scan needs HTTPS (or localhost). Use table number or paste the QR link instead.', true);
+            return;
+          }
+          if (!('BarcodeDetector' in window)) {
+            setStatus('This browser cannot scan QR in-app. Enter your table number or paste the QR link below.', true);
+            return;
+          }
+          try {
+            detector = new BarcodeDetector({ formats: ['qr_code'] });
+          } catch (_) {
+            setStatus('QR scanning is unavailable here. Enter your table number instead.', true);
+            return;
+          }
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: { facingMode: { ideal: 'environment' } },
+              audio: false,
+            });
+            video.srcObject = stream;
+            await video.play();
+            idle.classList.add('hidden');
+            btnStart.classList.add('hidden');
+            btnStop.classList.remove('hidden');
+            setStatus('Hold steady over the table QR…');
+            scanTimer = setInterval(async () => {
+              if (!detector || connecting || video.readyState < 2) return;
+              try {
+                const codes = await detector.detect(video);
+                if (!codes.length) return;
+                const value = codes[0].rawValue || '';
+                const token = RMS.extractQrToken(value);
+                if (token) {
+                  setStatus('QR found — connecting…');
+                  await connectWithToken(token);
+                }
+              } catch (_) {}
+            }, 450);
+          } catch (ex) {
+            setStatus('Camera permission denied or unavailable. Enter your table number instead.', true);
+            RMS.toast('Camera unavailable', 'error');
+            stopScan();
+          }
+        }
+
+        btnStart.onclick = startScan;
+        btnStop.onclick = () => {
+          stopScan();
+          setStatus('Camera stopped.');
+        };
+
+        document.getElementById('table-form').onsubmit = async (e) => {
+          e.preventDefault();
+          connecting = false;
+          await connectFromRaw(document.getElementById('table-number').value);
+        };
+
+        document.getElementById('token-form').onsubmit = async (e) => {
+          e.preventDefault();
+          connecting = false;
+          const raw = document.getElementById('token-raw').value;
+          const token = RMS.extractQrToken(raw);
+          if (!token) {
+            setStatus('Could not read a QR token from that text.', true);
+            return;
+          }
+          await connectWithToken(token);
+        };
+
+        document.getElementById('btn-unlink').onclick = () => {
+          RMS.clearTableSession();
+          document.getElementById('linked-card').classList.add('hidden');
+          document.getElementById('linked-menu').href = 'menu.html';
+          RMS.toast('Table disconnected');
+        };
+
+        window.addEventListener('beforeunload', stopScan);
+      },
+    });
+  </script>
+</body>
+</html>

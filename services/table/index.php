@@ -73,6 +73,36 @@ class TableService
             Response::success($row);
         }
 
+        // Guest helper: resolve a printed table number to its QR token (no session yet).
+        if ($method === 'GET' && preg_match('/^number\/(.+)$/', $sub, $m)) {
+            $raw = trim(urldecode($m[1]));
+            $raw = preg_replace('/\s+/', '', $raw);
+            if ($raw === '') {
+                Response::error('Table number required');
+            }
+            $candidates = array_values(array_unique(array_filter([
+                $raw,
+                strtoupper($raw),
+                strtolower($raw),
+                preg_replace('/^t/i', 'T', $raw),
+                'T' . ltrim($raw, 'Tt'),
+            ])));
+            $placeholders = implode(',', array_fill(0, count($candidates), '?'));
+            $stmt = $pdo->prepare(
+                "SELECT id, table_number, zone, capacity, qr_token, status
+                 FROM dining_tables
+                 WHERE table_number IN ($placeholders)
+                 LIMIT 1"
+            );
+            $stmt->execute($candidates);
+            $row = $stmt->fetch();
+            if (!$row) {
+                Response::error('Table not found. Check the number on your table tent.', 404);
+            }
+            $row['qr_url'] = $base . '/public/customer/menu.html?token=' . urlencode($row['qr_token']);
+            Response::success($row);
+        }
+
         if ($method === 'PATCH' && preg_match('/^(\d+)\/status$/', $sub, $m)) {
             Auth::requireLogin(['admin', 'cashier']);
             $b = $this->body();

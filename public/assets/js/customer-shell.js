@@ -4,10 +4,60 @@
 (function (global) {
   // Works both from XAMPP (/oxford-rms) and from the production domain root.
   const BASE = window.location.pathname.startsWith('/oxford-rms') ? '/oxford-rms' : '';
+  const TABLE_SESSION_KEY = 'oxford-table-session';
+
+  function readTableSession() {
+    try {
+      const raw = sessionStorage.getItem(TABLE_SESSION_KEY);
+      if (!raw) return null;
+      const data = JSON.parse(raw);
+      if (!data || !data.token) return null;
+      return data;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function saveTableSession(data) {
+    try {
+      if (!data || !data.token) {
+        sessionStorage.removeItem(TABLE_SESSION_KEY);
+        return;
+      }
+      sessionStorage.setItem(TABLE_SESSION_KEY, JSON.stringify({
+        token: String(data.token),
+        table_id: data.table_id || null,
+        table_number: data.table_number || null,
+        session_token: data.session_token || null,
+        saved_at: Date.now(),
+      }));
+    } catch (_) {}
+  }
+
+  function clearTableSession() {
+    try { sessionStorage.removeItem(TABLE_SESSION_KEY); } catch (_) {}
+  }
+
+  /** Pull a QR token from a scanned URL, raw token, or blank. */
+  function extractQrToken(raw) {
+    const text = String(raw || '').trim();
+    if (!text) return '';
+    try {
+      const url = new URL(text, window.location.origin);
+      const fromQuery = (url.searchParams.get('token') || '').trim();
+      if (fromQuery) return fromQuery;
+    } catch (_) {}
+    const match = text.match(/[?&]token=([^&#\s]+)/i);
+    if (match) {
+      try { return decodeURIComponent(match[1]).trim(); } catch (_) { return match[1].trim(); }
+    }
+    if (/^qr_[a-z0-9_]+$/i.test(text)) return text;
+    return '';
+  }
 
   function menuHref() {
     const params = new URLSearchParams(location.search);
-    const token = (params.get('token') || '').trim();
+    const token = (params.get('token') || '').trim() || (readTableSession()?.token || '');
     return token ? ('menu.html?token=' + encodeURIComponent(token)) : 'menu.html';
   }
 
@@ -29,6 +79,7 @@
     const links = [
       ['home', 'Home', 'index.html'],
       ['menu', 'Menu', menuHref()],
+      ['scan', 'Scan QR', 'scan.html'],
       ['suites', 'The Suites', 'suites.html'],
       ['reserve', 'Reserve', 'reserve.html'],
       ['orders', 'Orders', 'orders.html'],
@@ -626,5 +677,9 @@
   global.RMS.injectGuestChrome = injectGuestChrome;
   global.RMS.mountGuest = mountCustomerPage;
   global.RMS.customerMenuHref = menuHref;
+  global.RMS.readTableSession = readTableSession;
+  global.RMS.saveTableSession = saveTableSession;
+  global.RMS.clearTableSession = clearTableSession;
+  global.RMS.extractQrToken = extractQrToken;
   global.RMS.openGuestAccount = () => RMS.openModal('account-modal');
 })(window);

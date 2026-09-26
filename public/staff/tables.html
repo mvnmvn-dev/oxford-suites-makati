@@ -154,11 +154,14 @@
       subtitle: 'Floor plan status and guest QR links for table-side ordering.',
       async render(body) {
         body.innerHTML = `
-          <div class="mb-5 flex flex-wrap gap-4 text-xs text-charcoal-muted">
-            <span class="inline-flex items-center gap-2"><i class="h-3.5 w-3.5 rounded bg-sage"></i> Available</span>
-            <span class="inline-flex items-center gap-2"><i class="h-3.5 w-3.5 rounded bg-ember"></i> Occupied</span>
-            <span class="inline-flex items-center gap-2"><i class="h-3.5 w-3.5 rounded bg-brass"></i> Reserved / soon</span>
-            <span class="inline-flex items-center gap-2"><i class="h-3.5 w-3.5 rounded bg-clay"></i> Cleaning</span>
+          <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex flex-wrap gap-4 text-xs text-charcoal-muted">
+              <span class="inline-flex items-center gap-2"><i class="h-3.5 w-3.5 rounded bg-sage"></i> Available</span>
+              <span class="inline-flex items-center gap-2"><i class="h-3.5 w-3.5 rounded bg-ember"></i> Occupied</span>
+              <span class="inline-flex items-center gap-2"><i class="h-3.5 w-3.5 rounded bg-brass"></i> Reserved / soon</span>
+              <span class="inline-flex items-center gap-2"><i class="h-3.5 w-3.5 rounded bg-clay"></i> Cleaning</span>
+            </div>
+            <a href="qr-print.html" class="btn-primary !text-xs">Print QR cards</a>
           </div>
           <section class="mb-6">
             <div class="mb-3 flex flex-wrap items-center justify-between gap-2">

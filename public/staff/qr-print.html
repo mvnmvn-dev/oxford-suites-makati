@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Print table QR cards — Oxford Suites</title>
+  <link rel="icon" href="../favicon.ico?v=2" type="image/x-icon" />
+  <link rel="stylesheet" href="../assets/css/tailwind.css" />
+  <link rel="stylesheet" href="../assets/css/app.css?v=19" />
+  <style>
+    @page { size: A4; margin: 12mm; }
+    .qr-sheet {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    }
+    .qr-tent {
+      break-inside: avoid;
+      page-break-inside: avoid;
+      border: 1px solid #D9CFC2;
+      border-radius: 1rem;
+      background: #fff;
+      color: #111;
+      padding: 1rem 1rem 1.1rem;
+      text-align: center;
+    }
+    .qr-tent img {
+      width: 180px;
+      height: 180px;
+      margin: 0.75rem auto;
+      display: block;
+      background: #fff;
+    }
+    .qr-tent .table-no {
+      font-family: Georgia, 'Fraunces', serif;
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+    .qr-tent .meta {
+      margin-top: 0.25rem;
+      font-size: 0.7rem;
+      color: #6B635C;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-weight: 700;
+    }
+    .qr-tent .hint {
+      margin-top: 0.5rem;
+      font-size: 0.7rem;
+      color: #6B635C;
+      line-height: 1.35;
+    }
+    .qr-tent .url {
+      margin-top: 0.4rem;
+      font-size: 0.55rem;
+      word-break: break-all;
+      color: #8A8178;
+    }
+    @media print {
+      .print\:hidden { display: none !important; }
+      body { background: #fff !important; }
+      .qr-tent { box-shadow: none; }
+    }
+  </style>
+</head>
+<body class="m-0 bg-[#F6F1E9] text-[#241E1C]">
+  <div class="print:hidden border-b border-[#D9CFC2] bg-[#FFFCFA] px-4 py-4 sm:px-6">
+    <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3">
+      <div>
+        <p class="text-[11px] font-bold uppercase tracking-[0.14em] text-[#A67C3A]">Staff · Tables &amp; QR</p>
+        <h1 class="font-display text-2xl font-semibold">Printable table QR cards</h1>
+        <p class="mt-1 text-sm text-[#6B635C]">Cut and place one card on each table tent. Guests scan to open the menu for that table.</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <a href="tables.html" class="btn-secondary">Back to floor</a>
+        <button type="button" id="btn-print" class="btn-primary">Print cards</button>
+      </div>
+    </div>
+  </div>
+
+  <main class="mx-auto max-w-5xl px-4 py-6 sm:px-6">
+    <p id="status" class="print:hidden mb-4 text-sm text-[#6B635C]">Loading tables…</p>
+    <div id="sheet" class="qr-sheet"></div>
+  </main>
+
+  <script src="../assets/js/app.js?v=17"></script>
+  <script>
+    const TABLES = [
+      { n: 'T1', zone: 'Window Bay', token: 'qr_t1_oxford_suite' },
+      { n: 'T2', zone: 'Window Bay', token: 'qr_t2_oxford_suite' },
+      { n: 'T3', zone: 'Main Dining', token: 'qr_t3_oxford_suite' },
+      { n: 'T4', zone: 'Main Dining', token: 'qr_t4_oxford_suite' },
+      { n: 'T5', zone: 'Main Dining', token: 'qr_t5_oxford_suite' },
+      { n: 'T6', zone: 'Main Dining', token: 'qr_t6_oxford_suite' },
+      { n: 'T7', zone: 'Private Suite', token: 'qr_t7_oxford_suite' },
+      { n: 'T8', zone: 'Private Suite', token: 'qr_t8_oxford_suite' },
+      { n: 'T9', zone: 'Lounge', token: 'qr_t9_oxford_suite' },
+      { n: 'T10', zone: 'Lounge', token: 'qr_t10_oxford_suite' },
+      { n: 'T11', zone: 'Terrace', token: 'qr_t11_oxford_suite' },
+      { n: 'T12', zone: 'Terrace', token: 'qr_t12_oxford_suite' },
+    ];
+
+    function menuUrl(token) {
+      // PNGs were generated for the live domain; keep text in sync with the image payload.
+      return 'https://oxfordsuitesmakati.io/public/customer/menu.html?token=' + encodeURIComponent(token);
+    }
+
+    function render(rows) {
+      const sheet = document.getElementById('sheet');
+      sheet.innerHTML = rows.map((t) => {
+        const url = menuUrl(t.token);
+        const img = '../assets/img/qr/' + t.n + '.png';
+        return `
+          <article class="qr-tent qr-card" data-qr>
+            <div class="meta">Oxford Suites Makati</div>
+            <div class="table-no">${t.n}</div>
+            <div class="meta">${t.zone}</div>
+            <img src="${img}" alt="QR for table ${t.n}" width="180" height="180" />
+            <p class="hint">Scan to open the digital menu<br />and order for this table</p>
+            <p class="url">${url.replace(/</g, '&lt;')}</p>
+          </article>`;
+      }).join('');
+      document.getElementById('status').textContent =
+        rows.length + ' QR cards ready · Print, then cut along card edges.';
+    }
+
+    document.getElementById('btn-print').onclick = () => window.print();
+
+    (async () => {
+      let rows = TABLES;
+      try {
+        await RMS.requireStaff(['admin', 'cashier']);
+        const res = await RMS.api('/tables');
+        const live = (res.data || []).filter((t) => t.qr_token && t.table_number);
+        if (live.length) {
+          rows = live.map((t) => ({
+            n: t.table_number,
+            zone: t.zone || '',
+            token: t.qr_token,
+          }));
+        }
+      } catch (_) {
+        // Still allow print sheet with seeded cards if session expired.
+      }
+      render(rows);
+    })();
+  </script>
+</body>
+</html>

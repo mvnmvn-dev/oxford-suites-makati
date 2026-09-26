@@ -403,6 +403,14 @@
           <button type="button" id="cart-close" class="rounded-lg px-2 py-1 text-xs font-bold uppercase tracking-wider text-[#6B635C] hover:bg-white">Close</button>
         </div>
         <div id="cart-lines" class="max-h-[36vh] overflow-y-auto bg-[#FFFCFA] px-3 py-1"></div>
+        <div class="border-t border-[#D9CFC2] bg-[#FFFCFA] px-4 py-3">
+          <label class="mb-1 block text-[10px] font-bold uppercase tracking-[0.12em] text-[#6B635C]">When to serve</label>
+          <select id="order-window" class="field !py-1.5 text-sm">
+            <option value="now">Now (standard / rush if busy)</option>
+            <option value="advance">Advance order (schedule later)</option>
+          </select>
+          <input id="scheduled-for" type="datetime-local" class="field mt-2 hidden !py-1.5 text-sm" />
+        </div>
         <div class="flex items-center justify-between border-t border-[#D9CFC2] bg-[#FFFCFA] px-4 py-3">
           <span class="text-sm font-medium text-[#6B635C]">Subtotal</span>
           <strong id="cart-sheet-total" class="font-display text-xl font-semibold text-[#A8342A]">₱0.00</strong>
@@ -1006,6 +1014,11 @@
       }
     });
 
+    document.getElementById('order-window')?.addEventListener('change', () => {
+      const advance = document.getElementById('order-window').value === 'advance';
+      document.getElementById('scheduled-for').classList.toggle('hidden', !advance);
+    });
+
     document.getElementById('place-order').addEventListener('click', async () => {
       const items = [...cart.values()].map((v) => ({
         menu_item_id: v.menu_item_id,
@@ -1013,6 +1026,16 @@
         customization: v.customization || undefined,
       }));
       if (!items.length) return;
+      const windowMode = document.getElementById('order-window')?.value || 'now';
+      let scheduledFor = null;
+      if (windowMode === 'advance') {
+        scheduledFor = document.getElementById('scheduled-for')?.value || '';
+        if (!scheduledFor) {
+          RMS.toast('Choose a serve time for your advance order', 'error');
+          return;
+        }
+        scheduledFor = scheduledFor.replace('T', ' ') + ':00';
+      }
       try {
         const res = await RMS.api('/orders', {
           method: 'POST',
@@ -1022,13 +1045,15 @@
             customer_id: guest?.id || null,
             customer_name: guest?.name || ('Table ' + (table?.table_number || 'Guest')),
             source: table?.id ? 'qr' : (guest ? 'online' : 'qr'),
+            scheduled_for: scheduledFor,
             items,
           },
         });
         cart.clear();
         cartOpen = false;
         renderCart();
-        RMS.toast('Order placed · ' + res.data.order_number + ' · ' + RMS.money(res.data.total));
+        const win = res.data.order_window ? ` · ${res.data.order_window}` : '';
+        RMS.toast('Order placed · ' + res.data.order_number + ' · ' + RMS.money(res.data.total) + win);
         try { localStorage.setItem('oxford-last-order-id', String(res.data.id)); } catch (_) {}
         setTimeout(async () => {
           if (await RMS.confirm('Order placed. Track its progress now?', { title: 'Order placed', confirmLabel: 'Track order' })) {

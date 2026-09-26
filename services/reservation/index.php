@@ -9,16 +9,76 @@ class ReservationService
 {
     use ServiceHelpers;
 
+    private function normalizeTime(string $time, string $field = 'time'): string
+    {
+        if (!preg_match('/^\d{1,2}:\d{2}(:\d{2})?$/', $time)) {
+            Response::error($field . ' must be HH:MM or HH:MM:SS');
+        }
+        if (substr_count($time, ':') === 1) {
+            $time .= ':00';
+        }
+        $parts = array_map('intval', explode(':', $time));
+        return sprintf('%02d:%02d:%02d', $parts[0], $parts[1], $parts[2] ?? 0);
+    }
+
+    /** One active booking per table per calendar day. */
+    private function tableTakenOnDate(PDO $pdo, int $tableId, string $date, ?int $excludeId = null): bool
+    {
+        $sql = "SELECT id FROM reservations
+                WHERE table_id = ? AND reservation_date = ?
+                  AND status IN ('pending','confirmed','seated')";
+        $params = [$tableId, $date];
+        if ($excludeId) {
+            $sql .= ' AND id <> ?';
+            $params[] = $excludeId;
+        }
+        $sql .= ' LIMIT 1';
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        return (bool)$stmt->fetch();
+    }
+
+    private function guestActiveTableCount(PDO $pdo, ?int $customerId, ?string $email, string $date, ?int $excludeId = null): int
+    {
+        $clauses = [];
+        $params = [$date];
+        if ($customerId) {
+            $clauses[] = 'customer_id = ?';
+            $params[] = $customerId;
+        }
+        if ($email) {
+            $clauses[] = 'customer_email = ?';
+            $params[] = $email;
+        }
+        if (!$clauses) {
+            return 0;
+        }
+        $sql = "SELECT COUNT(DISTINCT table_id) FROM reservations
+                WHERE reservation_date = ?
+                  AND status IN ('pending','confirmed','seated')
+                  AND table_id IS NOT NULL
+                  AND (" . implode(' OR ', $clauses) . ')';
+        if ($excludeId) {
+            $sql .= ' AND id <> ?';
+            $params[] = $excludeId;
+        }
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        return (int)$stmt->fetchColumn();
+    }
+
     public function handle(): void
     {
         $sub = $_SERVER['RMS_SUBPATH'] ?? '';
         $method = $this->method();
         $pdo = Database::connection();
+        $config = require __DIR__ . '/../../config/app.php';
+        $maxTables = max(1, (int)($config['reservation_max_tables_per_day'] ?? 2));
 
         if ($method === 'GET' && $sub === '') {
             $date = $this->query('date');
             $mine = $this->query('mine');
-            $sql = 'SELECT r.*, t.table_number FROM reservations r LEFT JOIN dining_tables t ON t.id = r.table_id';
+            $sql = 'SELECT r.*, t.table_number, t.capacity FROM reservations r LEFT JOIN dining_tables t ON t.id = r.table_id';
             $params = [];
             $where = [];
             if ($mine === '1') {
@@ -82,14 +142,14 @@ class ReservationService
             $tables = $stmt->fetchAll();
             $out = [];
             foreach ($tables as $t) {
-                $conflict = $pdo->prepare(
-                    "SELECT id FROM reservations
-                     WHERE table_id=? AND reservation_date=?
-                       AND ABS(TIME_TO_SEC(TIMEDIFF(reservation_time, ?))) < 7200
-                       AND status IN ('pending','confirmed','seated') LIMIT 1"
-                );
-                $conflict->execute([(int)$t['id'], $date, $time]);
-                $t['available_slot'] = $conflict->fetch() ? 0 : 1;
+                $taken = $this->tableTakenOnDate($pdo, (int)$t['id'], $date);
+                $capacity = (int)$t['capacity'];
+                $t['available_slot'] = $taken ? 0 : 1;
+                $t['seats_total'] = $capacity;
+                $t['seats_free'] = $taken ? 0 : $capacity;
+                $t['seat_label'] = $taken
+                    ? 'Fully booked · ' . $capacity . ' seats taken'
+                    : $capacity . ' seats available';
                 $out[] = $t;
             }
             Response::success($out);
@@ -118,14 +178,9 @@ class ReservationService
                     Response::error('That table is too small for this party', 409);
                 }
                 if ($newTable['status'] === 'cleaning') Response::error('That table is being cleaned', 409);
-                $conflict = $pdo->prepare(
-                    "SELECT id FROM reservations
-                     WHERE table_id = ? AND id <> ? AND reservation_date = ?
-                       AND ABS(TIME_TO_SEC(TIMEDIFF(reservation_time, ?))) < 7200
-                       AND status IN ('pending','confirmed','seated') LIMIT 1"
-                );
-                $conflict->execute([$tableId, $reservationId, $reservation['reservation_date'], $reservation['reservation_time']]);
-                if ($conflict->fetch()) Response::error('That table is reserved near this time', 409);
+                if ($this->tableTakenOnDate($pdo, $tableId, $reservation['reservation_date'], $reservationId)) {
+                    Response::error('That table is already reserved for this date', 409);
+                }
             }
 
             $oldTableId = !empty($reservation['table_id']) ? (int)$reservation['table_id'] : null;
@@ -166,15 +221,14 @@ class ReservationService
             if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $reservationDate)) {
                 Response::error('reservation_date must be YYYY-MM-DD');
             }
-            $reservationTime = (string)$b['reservation_time'];
-            if (!preg_match('/^\d{1,2}:\d{2}(:\d{2})?$/', $reservationTime)) {
-                Response::error('reservation_time must be HH:MM or HH:MM:SS');
+            $reservationTime = $this->normalizeTime((string)$b['reservation_time'], 'reservation_time');
+            $serveTime = null;
+            if (!empty($b['serve_time'])) {
+                $serveTime = $this->normalizeTime((string)$b['serve_time'], 'serve_time');
+                if ($serveTime < $reservationTime) {
+                    Response::error('Food service time must be at or after arrival time');
+                }
             }
-            if (substr_count($reservationTime, ':') === 1) {
-                $reservationTime .= ':00';
-            }
-            $parts = array_map('intval', explode(':', $reservationTime));
-            $reservationTime = sprintf('%02d:%02d:%02d', $parts[0], $parts[1], $parts[2] ?? 0);
 
             $today = date('Y-m-d');
             if ($reservationDate < $today) {
@@ -184,39 +238,13 @@ class ReservationService
                 Response::error('Cannot book a reservation for a time that has already passed');
             }
             $b['reservation_time'] = $reservationTime;
-            $stmt = $pdo->prepare(
-                'INSERT INTO reservations (customer_id, customer_name, customer_email, customer_phone, party_size, table_id, reservation_date, reservation_time, status, notes, seating_pref)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-            );
             $status = $b['status'] ?? 'pending';
             $tableId = !empty($b['table_id']) ? (int)$b['table_id'] : null;
             $seatingPref = $b['seating_pref'] ?? 'any';
             if (!in_array($seatingPref, ['any', 'indoor', 'outdoor', 'window'], true)) {
                 $seatingPref = 'any';
             }
-            // Auto-pick a matching table when none selected, including the
-            // default "any" preference so the booking reaches Tables & QR.
-            if (!$tableId) {
-                $pickSql = "SELECT id FROM dining_tables
-                            WHERE capacity >= ? AND status IN ('available','reserved')";
-                $pickParams = [(int)$b['party_size']];
-                if ($seatingPref !== 'any') {
-                    $pickSql .= ' AND seating_type = ?';
-                    $pickParams[] = $seatingPref;
-                }
-                $pickSql .= ' ORDER BY capacity ASC, table_number LIMIT 1';
-                $pick = $pdo->prepare($pickSql);
-                $pick->execute($pickParams);
-                $picked = $pick->fetch();
-                if ($picked) {
-                    $tableId = (int)$picked['id'];
-                }
-            }
-            if ($tableId) {
-                $conflict = $pdo->prepare("SELECT id FROM reservations WHERE table_id=? AND reservation_date=? AND ABS(TIME_TO_SEC(TIMEDIFF(reservation_time, ?))) < 7200 AND status IN ('pending','confirmed','seated') LIMIT 1");
-                $conflict->execute([$tableId, $b['reservation_date'], $b['reservation_time']]);
-                if ($conflict->fetch()) Response::error('That table is already reserved near the selected time', 409);
-            }
+
             $customerId = !empty($b['customer_id']) ? (int)$b['customer_id'] : null;
             $user = Auth::user();
             if ($user && ($user['role'] ?? '') === 'customer') {
@@ -231,15 +259,62 @@ class ReservationService
                     $b['customer_phone'] = $user['phone'] ?? null;
                 }
             }
+            $email = $b['customer_email'] ?? null;
+
+            if (!$tableId) {
+                $pickSql = "SELECT id FROM dining_tables
+                            WHERE capacity >= ? AND status IN ('available','reserved')";
+                $pickParams = [(int)$b['party_size']];
+                if ($seatingPref !== 'any') {
+                    $pickSql .= ' AND seating_type = ?';
+                    $pickParams[] = $seatingPref;
+                }
+                $pickSql .= ' ORDER BY capacity ASC, table_number';
+                $pick = $pdo->prepare($pickSql);
+                $pick->execute($pickParams);
+                foreach ($pick->fetchAll() as $candidate) {
+                    $cid = (int)$candidate['id'];
+                    if (!$this->tableTakenOnDate($pdo, $cid, $reservationDate)) {
+                        $tableId = $cid;
+                        break;
+                    }
+                }
+            }
+
+            if ($tableId) {
+                $tableStmt = $pdo->prepare('SELECT * FROM dining_tables WHERE id = ?');
+                $tableStmt->execute([$tableId]);
+                $table = $tableStmt->fetch();
+                if (!$table) {
+                    Response::error('Table not found', 404);
+                }
+                if ((int)$table['capacity'] < (int)$b['party_size']) {
+                    Response::error('That table does not have enough seats for this party', 409);
+                }
+                if ($this->tableTakenOnDate($pdo, $tableId, $reservationDate)) {
+                    Response::error('That table is already reserved for this date', 409);
+                }
+            }
+
+            $currentCount = $this->guestActiveTableCount($pdo, $customerId, $email, $reservationDate);
+            if ($tableId && $currentCount >= $maxTables) {
+                Response::error('Guest limit reached: at most ' . $maxTables . ' tables can be reserved per day', 409);
+            }
+
+            $stmt = $pdo->prepare(
+                'INSERT INTO reservations (customer_id, customer_name, customer_email, customer_phone, party_size, table_id, reservation_date, reservation_time, serve_time, status, notes, seating_pref)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            );
             $stmt->execute([
                 $customerId,
                 $b['customer_name'],
-                $b['customer_email'] ?? null,
+                $email,
                 $b['customer_phone'] ?? null,
                 (int)$b['party_size'],
                 $tableId,
-                $b['reservation_date'],
-                $b['reservation_time'],
+                $reservationDate,
+                $reservationTime,
+                $serveTime,
                 $status,
                 $b['notes'] ?? null,
                 $seatingPref,
@@ -252,7 +327,7 @@ class ReservationService
                 ->execute(['admin', 'New reservation', $b['customer_name'] . ' — party of ' . $b['party_size'], 'reservation']);
             $pdo->prepare('INSERT INTO notifications (role_target, title, body, type) VALUES (?,?,?,?)')
                 ->execute(['cashier', 'New reservation', $b['customer_name'] . ' — party of ' . $b['party_size'], 'reservation']);
-            Response::success(['id' => $id], 'Reservation created', 201);
+            Response::success(['id' => $id, 'table_id' => $tableId], 'Reservation created', 201);
         }
 
         if ($method === 'PATCH' && preg_match('/^(\d+)\/status$/', $sub, $m)) {
@@ -278,13 +353,24 @@ class ReservationService
             } elseif ($status === 'cancelled') {
                 Security::requireManagerPin($b, 'cancel reservation', $id);
             }
+
+            $cancelReason = trim((string)($b['cancel_reason'] ?? ''));
+            if ($status === 'cancelled' && $cancelReason === '') {
+                Response::error('Cancellation reason is required');
+            }
+
             $before = $pdo->prepare('SELECT table_id, customer_id, customer_name, reservation_date, reservation_time, status FROM reservations WHERE id = ?');
             $before->execute([$id]);
             $row = $before->fetch();
             if (!$row) {
                 Response::error('Reservation not found', 404);
             }
-            $pdo->prepare('UPDATE reservations SET status = ? WHERE id = ?')->execute([$status, $id]);
+            if ($status === 'cancelled') {
+                $pdo->prepare('UPDATE reservations SET status = ?, cancel_reason = ? WHERE id = ?')
+                    ->execute([$status, $cancelReason, $id]);
+            } else {
+                $pdo->prepare('UPDATE reservations SET status = ? WHERE id = ?')->execute([$status, $id]);
+            }
             $tableId = !empty($row['table_id']) ? (int)$row['table_id'] : null;
             if ($status === 'confirmed' && $tableId) {
                 $pdo->prepare("UPDATE dining_tables SET status='reserved' WHERE id=? AND status IN ('available','reserved')")->execute([$tableId]);
@@ -314,6 +400,9 @@ class ReservationService
                         default => 'Reservation cancelled',
                     };
                     $body = ($row['reservation_date'] ?? '') . ' · ' . substr((string)($row['reservation_time'] ?? ''), 0, 5);
+                    if ($status === 'cancelled' && $cancelReason !== '') {
+                        $body .= ' · ' . $cancelReason;
+                    }
                     $pdo->prepare('INSERT INTO notifications (user_id, role_target, title, body, type) VALUES (?,?,?,?,?)')
                         ->execute([(int)$row['customer_id'], 'customer', $title, $body, 'reservation']);
                 }

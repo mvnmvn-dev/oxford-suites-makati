@@ -116,6 +116,12 @@
           if (!btn) return;
           const orderId = btn.dataset.cancel || btn.dataset.void;
           const isVoid = btn.hasAttribute('data-void') || btn.dataset.orderStatus === 'served';
+          const reason = window.prompt((isVoid ? 'Void' : 'Cancel') + ' reason (required):');
+          if (reason === null) return;
+          if (!String(reason).trim()) {
+            RMS.toast('Cancellation reason is required', 'error');
+            return;
+          }
           const ok = isVoid
             ? await RMS.confirm('Void this served order? Inventory will be restored and a manager PIN is required.', { title: 'Void served order', confirmLabel: 'Void order' })
             : await RMS.confirm('Cancel this order and restore inventory?', { title: 'Cancel order', confirmLabel: 'Cancel order' });
@@ -125,7 +131,7 @@
           try {
             await RMS.api(`/orders/${orderId}/status`, {
               method: 'PATCH',
-              body: { status: 'cancelled', manager_pin: managerPin },
+              body: { status: 'cancelled', manager_pin: managerPin, cancel_reason: String(reason).trim() },
             });
             RMS.toast(isVoid ? 'Order voided — stock restored' : 'Order cancelled — stock restored');
             await loadOrders();

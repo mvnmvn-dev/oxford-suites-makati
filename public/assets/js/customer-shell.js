@@ -131,6 +131,7 @@
             </div>
             <div class="header-dropdown-sep"></div>
             <button type="button" class="header-dropdown-item" data-guest-action="edit">Edit profile</button>
+            <button type="button" class="header-dropdown-item" data-guest-action="mfa">Authenticator (MFA)</button>
             <button type="button" class="header-dropdown-item" data-guest-action="a11y">Display &amp; accessibility</button>
             <button type="button" class="header-dropdown-item" data-guest-action="password">Change password</button>
             <button type="button" class="header-dropdown-item" data-guest-action="loyalty">Loyalty &amp; rewards</button>
@@ -300,6 +301,28 @@
           </div>
         </form>
       </div>
+    </div>
+
+    <div id="guest-mfa-modal" class="rms-modal-backdrop hidden" role="dialog" aria-modal="true">
+      <div class="rms-modal max-w-md">
+        <h2 class="font-display text-xl font-semibold">Authenticator (MFA)</h2>
+        <p id="guest-mfa-status" class="mt-1 text-sm text-charcoal-muted">Loading…</p>
+        <div id="guest-mfa-setup" class="mt-4 hidden space-y-3">
+          <p class="text-sm text-charcoal-muted">Scan this QR with Google Authenticator, Authy, or Microsoft Authenticator.</p>
+          <img id="guest-mfa-qr" alt="MFA QR code" class="mx-auto h-48 w-48 rounded-xl border border-line bg-white p-2" />
+          <p class="break-all text-center text-xs text-charcoal-muted">Secret: <code id="guest-mfa-secret"></code></p>
+          <input id="guest-mfa-enable-code" class="field tracking-[0.3em] text-center" maxlength="6" placeholder="6-digit code" inputmode="numeric" />
+          <button type="button" id="guest-mfa-enable-btn" class="btn-primary w-full">Enable authenticator</button>
+        </div>
+        <div id="guest-mfa-disable" class="mt-4 hidden space-y-3">
+          <input id="guest-mfa-disable-pwd" type="password" class="field" placeholder="Current password" />
+          <input id="guest-mfa-disable-code" class="field tracking-[0.3em] text-center" maxlength="6" placeholder="Authenticator code" inputmode="numeric" />
+          <button type="button" id="guest-mfa-disable-btn" class="btn-primary w-full !bg-ember">Disable MFA</button>
+        </div>
+        <div class="mt-4 flex justify-end">
+          <button type="button" class="btn-secondary" data-modal-close>Close</button>
+        </div>
+      </div>
     </div>`;
   }
 
@@ -341,6 +364,58 @@
     RMS.bindModalDismiss('guest-a11y-modal');
     RMS.bindModalDismiss('password-modal');
     RMS.bindModalDismiss('delete-modal');
+    RMS.bindModalDismiss('guest-mfa-modal');
+
+    async function openGuestMfa() {
+      const statusEl = document.getElementById('guest-mfa-status');
+      const setup = document.getElementById('guest-mfa-setup');
+      const disable = document.getElementById('guest-mfa-disable');
+      setup.classList.add('hidden');
+      disable.classList.add('hidden');
+      statusEl.textContent = 'Loading…';
+      RMS.openModal('guest-mfa-modal');
+      try {
+        const st = await RMS.api('/auth/mfa/status');
+        if (st.data?.totp_enabled) {
+          statusEl.textContent = 'Authenticator is enabled on this account.';
+          disable.classList.remove('hidden');
+        } else {
+          statusEl.textContent = 'Authenticator is not enabled yet.';
+          const setupRes = await RMS.api('/auth/mfa/setup', { method: 'POST', body: {} });
+          document.getElementById('guest-mfa-qr').src = setupRes.data.qr_url;
+          document.getElementById('guest-mfa-secret').textContent = setupRes.data.secret;
+          setup.classList.remove('hidden');
+        }
+      } catch (ex) {
+        statusEl.textContent = ex.message;
+      }
+    }
+
+    document.getElementById('guest-mfa-enable-btn')?.addEventListener('click', async () => {
+      try {
+        await RMS.api('/auth/mfa/enable', { method: 'POST', body: { code: document.getElementById('guest-mfa-enable-code').value.trim() } });
+        RMS.toast('Authenticator enabled');
+        RMS.closeModal('guest-mfa-modal');
+      } catch (ex) {
+        RMS.toast(ex.message, 'error');
+      }
+    });
+
+    document.getElementById('guest-mfa-disable-btn')?.addEventListener('click', async () => {
+      try {
+        await RMS.api('/auth/mfa/disable', {
+          method: 'POST',
+          body: {
+            password: document.getElementById('guest-mfa-disable-pwd').value,
+            code: document.getElementById('guest-mfa-disable-code').value.trim(),
+          },
+        });
+        RMS.toast('Authenticator disabled');
+        RMS.closeModal('guest-mfa-modal');
+      } catch (ex) {
+        RMS.toast(ex.message, 'error');
+      }
+    });
 
     const notifBtn = document.getElementById('guest-notif-btn');
     const notifPanel = document.getElementById('guest-notif-panel');
@@ -381,6 +456,7 @@
       const action = btn.dataset.guestAction;
       closeGuestDropdowns();
       if (action === 'edit') RMS.openModal('account-modal');
+      else if (action === 'mfa') await openGuestMfa();
       else if (action === 'a11y') {
         RMS.openModal('guest-a11y-modal');
         RMS.bindA11yControls(document.getElementById('guest-a11y-modal'));

@@ -12,7 +12,10 @@ class Security
             // Normal requests only perform metadata-free existence checks. Runtime
             // ALTER/CREATE statements can wait on MySQL metadata locks and make
             // protected actions appear to hang under concurrent restaurant use.
-            $pdo->query('SELECT manager_pin_hash FROM users LIMIT 0');
+            $pdo->query('SELECT manager_pin_hash, totp_secret, totp_enabled FROM users LIMIT 0');
+            $pdo->query('SELECT serve_time, cancel_reason FROM reservations LIMIT 0');
+            $pdo->query('SELECT order_window, scheduled_for, cancel_reason, discount_id_number FROM orders LIMIT 0');
+            $pdo->query('SELECT gateway_ref FROM payments LIMIT 0');
             foreach (['trusted_devices', 'table_sessions', 'login_attempts', 'manager_approvals', 'security_events'] as $table) {
                 $pdo->query("SELECT 1 FROM {$table} LIMIT 0");
             }
@@ -23,6 +26,15 @@ class Security
         }
         $statements = [
             "ALTER TABLE users ADD COLUMN manager_pin_hash VARCHAR(255) NULL",
+            "ALTER TABLE users ADD COLUMN totp_secret VARCHAR(64) DEFAULT NULL",
+            "ALTER TABLE users ADD COLUMN totp_enabled TINYINT(1) NOT NULL DEFAULT 0",
+            "ALTER TABLE reservations ADD COLUMN serve_time TIME DEFAULT NULL",
+            "ALTER TABLE reservations ADD COLUMN cancel_reason VARCHAR(255) DEFAULT NULL",
+            "ALTER TABLE orders ADD COLUMN order_window ENUM('standard','advance','rush') NOT NULL DEFAULT 'standard'",
+            "ALTER TABLE orders ADD COLUMN scheduled_for DATETIME DEFAULT NULL",
+            "ALTER TABLE orders ADD COLUMN cancel_reason VARCHAR(255) DEFAULT NULL",
+            "ALTER TABLE orders ADD COLUMN discount_id_number VARCHAR(64) DEFAULT NULL",
+            "ALTER TABLE payments ADD COLUMN gateway_ref VARCHAR(64) DEFAULT NULL",
             "CREATE TABLE IF NOT EXISTS trusted_devices (id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, user_id INT UNSIGNED NOT NULL, device_id VARCHAR(255) NOT NULL, device_name VARCHAR(100) DEFAULT NULL, browser VARCHAR(100) DEFAULT NULL, ip_address VARCHAR(45) DEFAULT NULL, last_login TIMESTAMP NULL DEFAULT NULL, expires_at TIMESTAMP NULL DEFAULT NULL, UNIQUE KEY uq_trusted_device (user_id, device_id), INDEX idx_trusted_expiry (expires_at)) ENGINE=InnoDB",
             "CREATE TABLE IF NOT EXISTS table_sessions (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, session_token CHAR(64) NOT NULL UNIQUE, table_number VARCHAR(20) NOT NULL, reservation_id INT UNSIGNED DEFAULT NULL, customer_name VARCHAR(100) DEFAULT NULL, expires_at TIMESTAMP NOT NULL, status ENUM('ACTIVE','EXPIRED','CLOSED') NOT NULL DEFAULT 'ACTIVE', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, INDEX idx_table_session_status (status, expires_at)) ENGINE=InnoDB",
             "CREATE TABLE IF NOT EXISTS login_attempts (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, user_id INT UNSIGNED DEFAULT NULL, email VARCHAR(160) DEFAULT NULL, ip_address VARCHAR(45) NOT NULL, attempts INT NOT NULL DEFAULT 0, last_attempt TIMESTAMP DEFAULT CURRENT_TIMESTAMP, locked_until TIMESTAMP NULL DEFAULT NULL, UNIQUE KEY uq_login_identity (email, ip_address)) ENGINE=InnoDB",

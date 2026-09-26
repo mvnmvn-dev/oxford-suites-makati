@@ -54,6 +54,21 @@
         </div>
         <div id="preview-box" class="hidden rounded-xl border border-line bg-parchment p-3 text-xs text-charcoal-muted"></div>
         <div id="receipt-preview" class="hidden receipt-preview" aria-live="polite"></div>
+        <div id="ewallet-fields" class="hidden space-y-2 rounded-xl border border-line bg-parchment/50 p-3">
+          <label class="mb-1 block text-xs font-semibold text-charcoal-muted">GCash / Maya reference number</label>
+          <input id="pay-reference" class="field" placeholder="e.g. 1234567890" autocomplete="off" />
+          <p class="text-[11px] text-charcoal-muted">Ask the guest to pay via the e-wallet, then enter the confirmation / reference number.</p>
+        </div>
+        <div id="card-terminal" class="hidden space-y-3 rounded-xl border border-line bg-[#1C1412] p-4 text-white">
+          <p class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#E2C48A]">Card terminal</p>
+          <p id="terminal-amount" class="font-display text-3xl font-semibold tabular-nums">₱0.00</p>
+          <p id="terminal-status" class="text-sm text-white/70">Waiting for tap / swipe…</p>
+          <div class="flex gap-2">
+            <button type="button" id="btn-terminal-tap" class="btn-primary flex-1">Simulate tap / swipe</button>
+            <button type="button" id="btn-terminal-reset" class="btn-secondary !border-white/30 !text-white">Reset</button>
+          </div>
+          <input type="hidden" id="terminal-confirmed" value="0" />
+        </div>
         <div class="grid grid-cols-2 gap-2">
           <select id="discount-type" class="field">
             <option value="">No discount</option>
@@ -63,6 +78,11 @@
           </select>
           <input id="promo-code" class="field" placeholder="Promo code" />
         </div>
+        <div id="discount-id-wrap" class="hidden">
+          <label class="mb-1 block text-xs font-semibold text-charcoal-muted">PWD / Senior OSCA or ID number</label>
+          <input id="discount-id-number" class="field" placeholder="Enter ID / OSCA number" autocomplete="off" />
+          <p class="mt-1 text-[11px] text-charcoal-muted">Required to apply the discounted rate. Manager PIN still confirms the override.</p>
+        </div>
         <input id="loyalty-voucher" class="field" placeholder="Loyalty voucher code (optional)" />
         <label class="flex cursor-pointer items-center gap-2 text-xs text-charcoal-muted">
           <input type="checkbox" id="force-fail" class="accent-ember" /> Simulate gateway failure
@@ -71,7 +91,7 @@
           <button type="button" class="btn-secondary" data-modal-close>Cancel</button>
           <button type="button" id="btn-preview" class="btn-secondary">Preview split</button>
           <button type="button" id="btn-receipt-preview" class="btn-secondary">Preview receipt</button>
-          <button type="submit" class="btn-primary">Charge</button>
+          <button type="submit" class="btn-primary">Complete payment</button>
         </div>
       </form>
     </div>
@@ -141,6 +161,23 @@
       const mode = document.getElementById('split-mode').value;
       document.getElementById('split-fields').classList.toggle('hidden', mode !== 'mixed');
       document.getElementById('equal-fields').classList.toggle('hidden', !['equal', 'by_customer'].includes(mode));
+    }
+
+    function syncPayMethodUi() {
+      const method = document.getElementById('pay-method').value;
+      const ewallet = ['gcash', 'maya'].includes(method);
+      const card = ['card', 'debit', 'credit'].includes(method);
+      document.getElementById('ewallet-fields').classList.toggle('hidden', !ewallet);
+      document.getElementById('card-terminal').classList.toggle('hidden', !card);
+      if (!card) {
+        document.getElementById('terminal-confirmed').value = '0';
+        document.getElementById('terminal-status').textContent = 'Waiting for tap / swipe…';
+      }
+    }
+
+    function syncDiscountIdUi() {
+      const type = document.getElementById('discount-type').value;
+      document.getElementById('discount-id-wrap').classList.toggle('hidden', !['senior', 'pwd'].includes(type));
     }
 
     function posSignature(orders, pays, circuitText) {
@@ -273,6 +310,9 @@
           document.getElementById('promo-code').value = '';
           document.getElementById('loyalty-voucher').value = '';
           document.getElementById('discount-type').value = '';
+          document.getElementById('discount-id-number').value = '';
+          document.getElementById('pay-reference').value = '';
+          document.getElementById('terminal-confirmed').value = '0';
           document.getElementById('preview-box').classList.add('hidden');
           document.getElementById('receipt-preview').classList.add('hidden');
           syncSplitUi();
@@ -283,8 +323,12 @@
           } catch (_) {}
           document.getElementById('pay-summary').textContent =
             order.order_number + ' · Table ' + (order.table_number || '—') + ' · Remaining ' + RMS.money(remaining);
+          document.getElementById('terminal-amount').textContent = RMS.money(remaining);
+          document.getElementById('terminal-status').textContent = 'Waiting for tap / swipe…';
           document.getElementById('split-amount').value = '';
           document.getElementById('split-amount-2').value = '';
+          syncPayMethodUi();
+          syncDiscountIdUi();
           RMS.openModal('pay-modal');
         };
         document.getElementById('receipts').onclick = async (e) => {
@@ -306,6 +350,17 @@
     });
 
     document.getElementById('split-mode').onchange = syncSplitUi;
+    document.getElementById('pay-method').onchange = syncPayMethodUi;
+    document.getElementById('discount-type').onchange = syncDiscountIdUi;
+    document.getElementById('btn-terminal-tap').onclick = () => {
+      document.getElementById('terminal-confirmed').value = '1';
+      document.getElementById('terminal-status').textContent = 'Approved · card captured';
+      RMS.toast('Card terminal approved');
+    };
+    document.getElementById('btn-terminal-reset').onclick = () => {
+      document.getElementById('terminal-confirmed').value = '0';
+      document.getElementById('terminal-status').textContent = 'Waiting for tap / swipe…';
+    };
     document.getElementById('btn-preview').onclick = async () => {
       const mode = document.getElementById('split-mode').value;
       if (!['equal', 'by_customer', 'by_item'].includes(mode)) {
@@ -403,22 +458,38 @@
     document.getElementById('pay-form').onsubmit = async (e) => {
       e.preventDefault();
       const mode = document.getElementById('split-mode').value;
+      const method = document.getElementById('pay-method').value;
       const body = {
         order_id: Number(document.getElementById('pay-order').value),
-        method: document.getElementById('pay-method').value,
+        method,
         force_fail: document.getElementById('force-fail').checked,
         discount_type: document.getElementById('discount-type').value,
+        discount_id_number: document.getElementById('discount-id-number').value.trim(),
         promo_code: document.getElementById('promo-code').value.trim(),
         loyalty_voucher: document.getElementById('loyalty-voucher').value.trim(),
+        reference_no: document.getElementById('pay-reference').value.trim() || null,
+        terminal_confirmed: document.getElementById('terminal-confirmed').value === '1',
       };
+      if (['gcash', 'maya'].includes(method) && !body.reference_no) {
+        RMS.toast('Enter the GCash / Maya reference number', 'error');
+        return;
+      }
+      if (['card', 'debit', 'credit'].includes(method) && !body.terminal_confirmed) {
+        RMS.toast('Confirm the card on the terminal first (tap / swipe)', 'error');
+        return;
+      }
       if (mode === 'mixed') {
         body.splits = [
-          { method: document.getElementById('split-method').value, amount: Number(document.getElementById('split-amount').value), label: 'Tender 1' },
-          { method: document.getElementById('split-method-2').value, amount: Number(document.getElementById('split-amount-2').value), label: 'Tender 2' },
+          { method: document.getElementById('split-method').value, amount: Number(document.getElementById('split-amount').value), label: 'Tender 1', reference_no: body.reference_no, terminal_confirmed: body.terminal_confirmed },
+          { method: document.getElementById('split-method-2').value, amount: Number(document.getElementById('split-amount-2').value), label: 'Tender 2', reference_no: body.reference_no, terminal_confirmed: body.terminal_confirmed },
         ];
       } else if (['equal', 'by_customer', 'by_item'].includes(mode)) {
         body.split_mode = mode;
         body.split_count = Number(document.getElementById('split-count').value) || 2;
+      }
+      if (['senior', 'pwd'].includes(body.discount_type) && !body.discount_id_number) {
+        RMS.toast('Enter the PWD / Senior ID or OSCA number', 'error');
+        return;
       }
       if (body.discount_type || body.promo_code || body.loyalty_voucher) {
         body.manager_pin = await RMS.requestManagerPin('override the discount');

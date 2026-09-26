@@ -57,9 +57,13 @@
             <input id="r-date" type="date" required class="field" min="" />
           </div>
           <div>
-            <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Time</label>
+            <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Arrival time</label>
             <input id="r-time" type="time" value="19:00" required class="field" />
           </div>
+        </div>
+        <div>
+          <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Food service time</label>
+          <input id="r-serve" type="time" value="19:30" class="field" />
         </div>
         <div>
           <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Notes</label>
@@ -267,11 +271,19 @@
       list.onclick = async (event) => {
         const button = event.target.closest('[data-cancel-res]');
         if (!button) return;
-        if (!await RMS.confirm('Cancel this reservation?', { title: 'Cancel reservation', confirmLabel: 'Continue' })) return;
+        const reason = window.prompt('Cancellation reason (required):');
+        if (reason === null) return;
+        if (!String(reason).trim()) {
+          RMS.toast('Cancellation reason is required', 'error');
+          return;
+        }
         const managerPin = await RMS.requestManagerPin('cancel this reservation');
         if (!managerPin) return;
         try {
-          await RMS.api('/reservations/' + button.dataset.cancelRes + '/status', { method: 'PATCH', body: { status: 'cancelled', manager_pin: managerPin } });
+          await RMS.api('/reservations/' + button.dataset.cancelRes + '/status', {
+            method: 'PATCH',
+            body: { status: 'cancelled', manager_pin: managerPin, cancel_reason: String(reason).trim() },
+          });
           RMS.toast('Reservation cancelled');
           await drawCal();
         } catch (ex) { RMS.toast(ex.message, 'error'); }
@@ -471,6 +483,7 @@
             party_size: Number(document.getElementById('r-party').value),
             reservation_date: date,
             reservation_time: time,
+            serve_time: document.getElementById('r-serve').value || null,
             notes: document.getElementById('r-notes').value,
             status: document.getElementById('r-status').value,
           },

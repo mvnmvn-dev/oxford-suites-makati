@@ -60,4 +60,15 @@ return [
         'failure_threshold' => 5,
         'recovery_timeout' => 30,
     ],
+
+    // Max active table bookings per guest (by account or email) per calendar day.
+    'reservation_max_tables_per_day' => 2,
+
+    // Order intake windows (Asia/Manila). Outside hours → reject. Advance = scheduled ≥2h out. Rush = within 45 min of now during service.
+    'order_hours' => [
+        'open' => '10:00',
+        'close' => '22:00',
+    ],
+    'order_advance_minutes' => 120,
+    'order_rush_minutes' => 45,
 ];

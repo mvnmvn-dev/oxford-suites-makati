@@ -28,6 +28,12 @@ class PaymentService
         $pdo = Database::connection();
         $breaker = new CircuitBreaker('payment');
 
+        if ($method === 'POST' && $sub === 'circuit/reset') {
+            Auth::requireLogin(['admin']);
+            $breaker->recordSuccess();
+            Response::success($breaker->status(), 'Payment circuit reset');
+        }
+
         if ($method === 'GET' && $sub === 'circuit') {
             Response::success($breaker->status());
         }
@@ -79,15 +85,6 @@ class PaymentService
             if (!$orderId) {
                 Response::error('order_id required');
             }
-            $orderStmt = $pdo->prepare('SELECT * FROM orders WHERE id = ? FOR UPDATE');
-            $orderStmt->execute([$orderId]);
-            $order = $orderStmt->fetch();
-            if (!$order) {
-                Response::error('Order not found', 404);
-            }
-            if ($order['status'] === 'paid') {
-                Response::error('Order is already paid', 409);
-            }
             if (!empty($b['force_fail'])) {
                 $breaker->recordFailure();
                 Response::error('Simulated payment gateway failure', 502);
@@ -95,6 +92,15 @@ class PaymentService
 
             try {
                 $pdo->beginTransaction();
+                $orderStmt = $pdo->prepare('SELECT * FROM orders WHERE id = ? FOR UPDATE');
+                $orderStmt->execute([$orderId]);
+                $order = $orderStmt->fetch();
+                if (!$order) {
+                    throw new RuntimeException('Order not found');
+                }
+                if ($order['status'] === 'paid') {
+                    throw new RuntimeException('Order is already paid');
+                }
                 $this->applyDiscount($pdo, $order, $b);
                 $order = $this->reloadOrder($pdo, $orderId);
                 $sumStmt = $pdo->prepare("SELECT COALESCE(SUM(amount),0) FROM payments WHERE order_id = ? AND status = 'completed'");
@@ -104,7 +110,7 @@ class PaymentService
 
                 $splits = $b['splits'] ?? null;
                 if (!is_array($splits) || !$splits) {
-                    $splits = [['method' => $b['method'] ?? 'cash', 'amount' => $b['amount'] ?? $remaining, 'reference_no' => $b['reference_no'] ?? null, 'label' => $b['split_label'] ?? 'Full']];
+                    $splits = [['method' => $b['method'] ?? 'cash', 'amount' => $b['amount'] ?? $remaining, 'reference_no' => $b['reference_no'] ?? null, 'label' => $b['split_label'] ?? 'Full', 'terminal_confirmed' => !empty($b['terminal_confirmed'])]];
                 }
 
                 // Auto equal / by-item split helpers
@@ -118,20 +124,38 @@ class PaymentService
                     $payMethod = $this->normalizeMethod((string)($split['method'] ?? 'cash'));
                     $amount = round((float)($split['amount'] ?? 0), 2);
                     if ($amount <= 0) {
-                        Response::error('Each payment split needs a valid method and positive amount');
+                        throw new RuntimeException('Each payment split needs a valid method and positive amount');
+                    }
+                    $reference = trim((string)($split['reference_no'] ?? $b['reference_no'] ?? ''));
+                    $gatewayRef = null;
+                    if (in_array($payMethod, ['gcash', 'maya'], true)) {
+                        if ($reference === '' || strlen($reference) < 4) {
+                            throw new RuntimeException(strtoupper($payMethod) . ' requires a valid reference / confirmation number');
+                        }
+                        $gatewayRef = strtoupper($payMethod) . '-' . preg_replace('/[^A-Z0-9]/i', '', $reference);
+                    }
+                    if ($payMethod === 'card') {
+                        $confirmed = !empty($split['terminal_confirmed']) || !empty($b['terminal_confirmed']);
+                        if (!$confirmed) {
+                            throw new RuntimeException('Card payment requires confirmation on the card terminal');
+                        }
+                        if ($reference === '') {
+                            $reference = 'TERM-' . strtoupper(substr(uniqid(), -8));
+                        }
+                        $gatewayRef = 'CARD-' . preg_replace('/[^A-Z0-9\-]/i', '', $reference);
                     }
                     $requested += $amount;
-                    $valid[] = [$payMethod, $amount, $split['reference_no'] ?? null, (string)($split['label'] ?? 'Share')];
+                    $valid[] = [$payMethod, $amount, $reference !== '' ? $reference : null, (string)($split['label'] ?? 'Share'), $gatewayRef];
                 }
                 if ($requested > $remaining + 0.01) {
-                    Response::error('Payment exceeds the remaining balance of ₱' . number_format($remaining, 2), 422);
+                    throw new RuntimeException('Payment exceeds the remaining balance of ₱' . number_format($remaining, 2));
                 }
                 $user = Auth::user();
                 $receipts = [];
-                foreach ($valid as [$payMethod, $amount, $reference, $label]) {
+                foreach ($valid as [$payMethod, $amount, $reference, $label, $gatewayRef]) {
                     $receipt = 'RCP-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6));
-                    $stmt = $pdo->prepare('INSERT INTO payments (order_id, amount, method, status, reference_no, cashier_id, receipt_no) VALUES (?, ?, ?, "completed", ?, ?, ?)');
-                    $stmt->execute([$orderId, $amount, $payMethod, $reference, $user['id'] ?? null, $receipt]);
+                    $stmt = $pdo->prepare('INSERT INTO payments (order_id, amount, method, status, reference_no, gateway_ref, cashier_id, receipt_no) VALUES (?, ?, ?, "completed", ?, ?, ?, ?)');
+                    $stmt->execute([$orderId, $amount, $payMethod, $reference, $gatewayRef, $user['id'] ?? null, $receipt]);
                     $paymentId = (int)$pdo->lastInsertId();
                     $pdo->prepare('INSERT INTO bill_splits (order_id, split_label, amount, method, payment_id) VALUES (?,?,?,?,?)')
                         ->execute([$orderId, $label, $amount, $payMethod, $paymentId]);
@@ -180,8 +204,13 @@ class PaymentService
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();
                 }
-                $breaker->recordFailure();
-                Response::error('Payment failed: ' . $e->getMessage(), 500);
+                $msg = $e->getMessage();
+                $isValidation = preg_match('/required|exceeds|already paid|not found|Invalid|invalid|terminal|GCash|Maya|reference/i', $msg);
+                if (!$isValidation) {
+                    $breaker->recordFailure();
+                }
+                $code = str_contains(strtolower($msg), 'not found') ? 404 : (str_contains(strtolower($msg), 'already') || str_contains(strtolower($msg), 'exceeds') ? 409 : 422);
+                Response::error('Payment failed: ' . $msg, $code === 422 && !$isValidation ? 500 : $code);
             }
         }
         Response::error('Payment route not found', 404);
@@ -298,8 +327,13 @@ class PaymentService
         $label = $code ?: ($loyaltyCode ?: $type);
 
         if (in_array($type, ['senior', 'pwd'], true)) {
+            $idNumber = trim((string)($body['discount_id_number'] ?? ''));
+            if ($idNumber === '' || strlen($idNumber) < 4) {
+                Response::error(($type === 'pwd' ? 'PWD' : 'Senior Citizen') . ' ID / OSCA number is required', 422);
+            }
             $discount = round((float)$order['subtotal'] * 0.20, 2);
             $vatExempt = 1;
+            $label = strtoupper($type) . ':' . $idNumber;
         } elseif ($type === 'employee') {
             $discount = round((float)$order['subtotal'] * 0.10, 2);
         }
@@ -332,8 +366,9 @@ class PaymentService
         $taxable = max(0, (float)$order['subtotal'] - $discount);
         $tax = $vatExempt ? 0 : round($taxable * 0.12, 2);
         $total = round($taxable + $tax, 2);
-        $pdo->prepare('UPDATE orders SET discount=?, discount_code=?, vat_exempt=?, tax=?, total=? WHERE id=?')
-            ->execute([$discount, $label, $vatExempt, $tax, $total, (int)$order['id']]);
+        $idCol = trim((string)($body['discount_id_number'] ?? ''));
+        $pdo->prepare('UPDATE orders SET discount=?, discount_code=?, discount_id_number=?, vat_exempt=?, tax=?, total=? WHERE id=?')
+            ->execute([$discount, $label, $idCol !== '' ? $idCol : null, $vatExempt, $tax, $total, (int)$order['id']]);
     }
 
     private function promoDiscount(PDO $pdo, array $order, array $promo): float

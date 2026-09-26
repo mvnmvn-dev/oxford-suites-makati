@@ -93,6 +93,7 @@
               </button>
               <div id="profile-menu" class="header-dropdown profile-menu hidden" role="menu">
                 <button type="button" class="header-dropdown-item" data-profile-action="edit">Edit profile</button>
+                <button type="button" class="header-dropdown-item" data-profile-action="mfa">Authenticator (MFA)</button>
                 <button type="button" class="header-dropdown-item" data-profile-action="a11y">Display &amp; accessibility</button>
                 <button type="button" class="header-dropdown-item" data-profile-action="password">Change password</button>
                 <div class="header-dropdown-sep"></div>
@@ -195,6 +196,28 @@
           </div>
         </form>
       </div>
+    </div>
+
+    <div id="staff-mfa-modal" class="rms-modal-backdrop hidden" role="dialog" aria-modal="true">
+      <div class="rms-modal max-w-md">
+        <h2>Authenticator (MFA)</h2>
+        <p id="staff-mfa-status" class="mt-1 text-sm text-charcoal-muted">Loading…</p>
+        <div id="staff-mfa-setup" class="mt-4 hidden space-y-3">
+          <p class="text-sm text-charcoal-muted">Scan this QR with Google Authenticator, Authy, or Microsoft Authenticator.</p>
+          <img id="staff-mfa-qr" alt="MFA QR code" class="mx-auto h-48 w-48 rounded-xl border border-line bg-white p-2" />
+          <p class="break-all text-center text-xs text-charcoal-muted">Secret: <code id="staff-mfa-secret"></code></p>
+          <input id="staff-mfa-enable-code" class="field tracking-[0.3em] text-center" maxlength="6" placeholder="6-digit code" inputmode="numeric" />
+          <button type="button" id="staff-mfa-enable-btn" class="btn-primary w-full">Enable authenticator</button>
+        </div>
+        <div id="staff-mfa-disable" class="mt-4 hidden space-y-3">
+          <input id="staff-mfa-disable-pwd" type="password" class="field" placeholder="Current password" />
+          <input id="staff-mfa-disable-code" class="field tracking-[0.3em] text-center" maxlength="6" placeholder="Authenticator code" inputmode="numeric" />
+          <button type="button" id="staff-mfa-disable-btn" class="btn-primary w-full bg-ember">Disable MFA</button>
+        </div>
+        <div class="mt-4 flex justify-end">
+          <button type="button" class="btn-secondary" data-modal-close>Close</button>
+        </div>
+      </div>
     </div>`;
   }
 
@@ -213,6 +236,58 @@
     RMS.bindModalDismiss('staff-profile-modal');
     RMS.bindModalDismiss('staff-a11y-modal');
     RMS.bindModalDismiss('staff-password-modal');
+    RMS.bindModalDismiss('staff-mfa-modal');
+
+    async function openStaffMfa() {
+      const statusEl = document.getElementById('staff-mfa-status');
+      const setup = document.getElementById('staff-mfa-setup');
+      const disable = document.getElementById('staff-mfa-disable');
+      setup.classList.add('hidden');
+      disable.classList.add('hidden');
+      statusEl.textContent = 'Loading…';
+      RMS.openModal('staff-mfa-modal');
+      try {
+        const st = await RMS.api('/auth/mfa/status');
+        if (st.data?.totp_enabled) {
+          statusEl.textContent = 'Authenticator is enabled on this account.';
+          disable.classList.remove('hidden');
+        } else {
+          statusEl.textContent = 'Authenticator is not enabled yet.';
+          const setupRes = await RMS.api('/auth/mfa/setup', { method: 'POST', body: {} });
+          document.getElementById('staff-mfa-qr').src = setupRes.data.qr_url;
+          document.getElementById('staff-mfa-secret').textContent = setupRes.data.secret;
+          setup.classList.remove('hidden');
+        }
+      } catch (ex) {
+        statusEl.textContent = ex.message;
+      }
+    }
+
+    document.getElementById('staff-mfa-enable-btn')?.addEventListener('click', async () => {
+      try {
+        await RMS.api('/auth/mfa/enable', { method: 'POST', body: { code: document.getElementById('staff-mfa-enable-code').value.trim() } });
+        RMS.toast('Authenticator enabled');
+        RMS.closeModal('staff-mfa-modal');
+      } catch (ex) {
+        RMS.toast(ex.message, 'error');
+      }
+    });
+
+    document.getElementById('staff-mfa-disable-btn')?.addEventListener('click', async () => {
+      try {
+        await RMS.api('/auth/mfa/disable', {
+          method: 'POST',
+          body: {
+            password: document.getElementById('staff-mfa-disable-pwd').value,
+            code: document.getElementById('staff-mfa-disable-code').value.trim(),
+          },
+        });
+        RMS.toast('Authenticator disabled');
+        RMS.closeModal('staff-mfa-modal');
+      } catch (ex) {
+        RMS.toast(ex.message, 'error');
+      }
+    });
 
     const notifBtn = document.getElementById('notif-btn');
     const notifPanel = document.getElementById('notif-panel');
@@ -258,6 +333,8 @@
         document.getElementById('staff-acc-phone').value = user.phone || '';
         document.getElementById('staff-acc-role').textContent = user.role || '';
         RMS.openModal('staff-profile-modal');
+      } else if (action === 'mfa') {
+        await openStaffMfa();
       } else if (action === 'a11y') {
         RMS.openModal('staff-a11y-modal');
         RMS.bindThemeControls(document.getElementById('staff-a11y-modal'));

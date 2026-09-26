@@ -42,8 +42,8 @@ module.exports = {
         surface: 'var(--surface)',
       },
       fontFamily: {
-        display: ['Fraunces', 'Georgia', 'serif'],
-        sans: ['Public Sans', 'system-ui', 'sans-serif'],
+        display: ['Source Serif 4', 'Georgia', 'serif'],
+        sans: ['Source Sans 3', 'Segoe UI', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
         suite: 'var(--shadow-suite)',

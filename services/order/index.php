@@ -72,6 +72,38 @@ class OrderService
             if (!$items || !is_array($items)) {
                 Response::error('Order items required');
             }
+            $config = require __DIR__ . '/../../config/app.php';
+            $hours = $config['order_hours'] ?? ['open' => '10:00', 'close' => '22:00'];
+            $now = new DateTimeImmutable('now');
+            $scheduledFor = null;
+            $orderWindow = 'standard';
+            if (!empty($b['scheduled_for'])) {
+                try {
+                    $scheduledFor = new DateTimeImmutable((string)$b['scheduled_for']);
+                } catch (Throwable $e) {
+                    Response::error('scheduled_for must be a valid datetime');
+                }
+            }
+            $target = $scheduledFor ?: $now;
+            $targetTod = $target->format('H:i');
+            $openTod = ($hours['open'] ?? '10:00');
+            $closeTod = ($hours['close'] ?? '22:00');
+            if ($targetTod < $openTod || $targetTod > $closeTod) {
+                Response::error('Orders are accepted between ' . $openTod . ' and ' . $closeTod);
+            }
+            $advanceMin = max(30, (int)($config['order_advance_minutes'] ?? 120));
+            $rushMin = max(15, (int)($config['order_rush_minutes'] ?? 45));
+            $diffMin = (int)round(($target->getTimestamp() - $now->getTimestamp()) / 60);
+            if ($scheduledFor && $diffMin >= $advanceMin) {
+                $orderWindow = 'advance';
+            } elseif ($diffMin <= $rushMin) {
+                $orderWindow = 'rush';
+            }
+            if (!empty($b['order_window']) && in_array($b['order_window'], ['standard', 'advance', 'rush'], true)) {
+                // Allow explicit override from POS when classifying a ticket.
+                $orderWindow = $b['order_window'];
+            }
+
             $tableId = !empty($b['table_id']) ? (int)$b['table_id'] : null;
             if ($tableId && ($b['source'] ?? 'qr') === 'qr') {
                 $session = $pdo->prepare("SELECT ts.id FROM table_sessions ts JOIN dining_tables dt ON dt.table_number=ts.table_number WHERE ts.session_token=? AND ts.status='ACTIVE' AND ts.expires_at > NOW() AND dt.id=? LIMIT 1");
@@ -150,8 +182,8 @@ class OrderService
                     }
                 }
                 $ins = $pdo->prepare(
-                    'INSERT INTO orders (order_number, table_id, customer_id, customer_name, status, source, subtotal, tax, total, notes)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                    'INSERT INTO orders (order_number, table_id, customer_id, customer_name, status, source, order_window, scheduled_for, subtotal, tax, total, notes)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
                 );
                 $ins->execute([
                     $orderNumber,
@@ -160,6 +192,8 @@ class OrderService
                     $b['customer_name'] ?? 'Guest',
                     'pending',
                     $b['source'] ?? 'qr',
+                    $orderWindow,
+                    $scheduledFor ? $scheduledFor->format('Y-m-d H:i:s') : null,
                     $subtotal,
                     $tax,
                     $total,
@@ -191,19 +225,25 @@ class OrderService
                 'order_id' => $orderId,
                 'order_number' => $orderNumber,
                 'total' => $total,
+                'order_window' => $orderWindow,
             ]);
 
+            $windowLabel = match ($orderWindow) {
+                'advance' => 'Advance order',
+                'rush' => 'Rush order',
+                default => 'Order',
+            };
             $pdo->prepare('INSERT INTO notifications (role_target, title, body, type) VALUES (?,?,?,?)')
                 ->execute([
                     'kitchen',
-                    'New order ' . $orderNumber,
+                    $windowLabel . ' ' . $orderNumber,
                     'Table order ready for kitchen · ₱' . number_format($total, 2),
                     'order',
                 ]);
             $pdo->prepare('INSERT INTO notifications (role_target, title, body, type) VALUES (?,?,?,?)')
                 ->execute([
                     'cashier',
-                    'New order ' . $orderNumber,
+                    $windowLabel . ' ' . $orderNumber,
                     'Guest order received · ₱' . number_format($total, 2),
                     'order',
                 ]);
@@ -245,11 +285,19 @@ class OrderService
             }
             if ($status === 'cancelled' && $prevRow['status'] !== 'cancelled') {
                 Security::requireManagerPin($b, 'void order', $orderId);
+                if (trim((string)($b['cancel_reason'] ?? '')) === '') {
+                    Response::error('Cancellation reason is required');
+                }
             }
 
             $pdo->beginTransaction();
             try {
-                $pdo->prepare('UPDATE orders SET status = ? WHERE id = ?')->execute([$status, $orderId]);
+                if ($status === 'cancelled' && $prevRow['status'] !== 'cancelled') {
+                    $pdo->prepare('UPDATE orders SET status = ?, cancel_reason = ? WHERE id = ?')
+                        ->execute([$status, trim((string)$b['cancel_reason']), $orderId]);
+                } else {
+                    $pdo->prepare('UPDATE orders SET status = ? WHERE id = ?')->execute([$status, $orderId]);
+                }
                 if ($status === 'preparing') {
                     $pdo->prepare("UPDATE kitchen_tickets SET status='in_progress', started_at=NOW() WHERE order_id=?")->execute([$orderId]);
                 }

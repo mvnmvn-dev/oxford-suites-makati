@@ -4,6 +4,7 @@ require_once __DIR__ . '/../../shared/Database.php';
 require_once __DIR__ . '/../../shared/Auth.php';
 require_once __DIR__ . '/../../shared/ServiceHelpers.php';
 require_once __DIR__ . '/../../shared/Security.php';
+require_once __DIR__ . '/../../shared/Totp.php';
 
 class UserService
 {
@@ -65,12 +66,122 @@ class UserService
             if (!$user) {
                 Response::error('Invalid credentials', 401);
             }
+            $pdo = Database::connection();
+            $mfa = $pdo->prepare('SELECT totp_enabled, totp_secret FROM users WHERE id = ? LIMIT 1');
+            $mfa->execute([(int)$user['id']]);
+            $mfaRow = $mfa->fetch() ?: [];
+            if (!empty($mfaRow['totp_enabled']) && !empty($mfaRow['totp_secret'])) {
+                $token = Auth::beginMfaChallenge((int)$user['id']);
+                Response::success([
+                    'mfa_required' => true,
+                    'mfa_token' => $token,
+                    'user_hint' => ['id' => (int)$user['id'], 'email' => $user['email'], 'name' => $user['name'], 'role' => $user['role']],
+                ], 'Authenticator code required');
+            }
             Auth::login($user);
             try {
                 require_once __DIR__ . '/../../shared/Audit.php';
                 Audit::log('login', 'auth', 'Signed in as ' . ($user['role'] ?? ''));
             } catch (Throwable $e) {}
+            Response::success(['user' => Auth::publicUser($user), 'mfa_required' => false], 'Logged in');
+        }
+
+        if ($method === 'POST' && $sub === 'mfa/verify') {
+            $b = $this->body();
+            $code = (string)($b['code'] ?? '');
+            $token = (string)($b['mfa_token'] ?? '');
+            $uid = Auth::pendingMfaUserId($token);
+            if (!$uid) {
+                Response::error('MFA challenge expired. Sign in again.', 401);
+            }
+            $pdo = Database::connection();
+            $stmt = $pdo->prepare('SELECT * FROM users WHERE id = ? AND is_active = 1 LIMIT 1');
+            $stmt->execute([$uid]);
+            $row = $stmt->fetch();
+            if (!$row || empty($row['totp_secret']) || !Totp::verify((string)$row['totp_secret'], $code)) {
+                Security::event($uid, 'mfa_failed', 'warning', 'Invalid authenticator code');
+                Response::error('Invalid authenticator code', 401);
+            }
+            $user = Auth::publicUser($row);
+            Auth::login($user);
+            try {
+                require_once __DIR__ . '/../../shared/Audit.php';
+                Audit::log('login', 'auth', 'MFA sign-in as ' . ($user['role'] ?? ''));
+            } catch (Throwable $e) {}
+            Security::event($uid, 'mfa_verified', 'info', 'Authenticator login success');
             Response::success(['user' => $user], 'Logged in');
+        }
+
+        if ($method === 'GET' && $sub === 'mfa/status') {
+            $user = Auth::requireLogin(['admin', 'cashier', 'kitchen', 'customer']);
+            $stmt = Database::connection()->prepare('SELECT totp_enabled FROM users WHERE id = ?');
+            $stmt->execute([(int)$user['id']]);
+            $enabled = (int)$stmt->fetchColumn() === 1;
+            Response::success(['totp_enabled' => $enabled]);
+        }
+
+        if ($method === 'POST' && $sub === 'mfa/setup') {
+            $user = Auth::requireLogin(['admin', 'cashier', 'kitchen', 'customer']);
+            $secret = Totp::generateSecret();
+            Auth::startSession();
+            $_SESSION['totp_setup_secret'] = $secret;
+            $_SESSION['totp_setup_at'] = time();
+            $uri = Totp::otpAuthUri($secret, (string)$user['email']);
+            Response::success([
+                'secret' => $secret,
+                'otpauth_uri' => $uri,
+                'qr_url' => Totp::qrImageUrl($uri),
+            ], 'Scan this QR with your authenticator app');
+        }
+
+        if ($method === 'POST' && $sub === 'mfa/enable') {
+            $user = Auth::requireLogin(['admin', 'cashier', 'kitchen', 'customer']);
+            $b = $this->body();
+            $code = (string)($b['code'] ?? '');
+            Auth::startSession();
+            $secret = (string)($_SESSION['totp_setup_secret'] ?? '');
+            $started = (int)($_SESSION['totp_setup_at'] ?? 0);
+            if ($secret === '' || $started < 1 || time() - $started > 600) {
+                Response::error('MFA setup expired. Start again.', 400);
+            }
+            if (!Totp::verify($secret, $code)) {
+                Response::error('Invalid authenticator code', 400);
+            }
+            Database::connection()->prepare('UPDATE users SET totp_secret = ?, totp_enabled = 1 WHERE id = ?')
+                ->execute([$secret, (int)$user['id']]);
+            unset($_SESSION['totp_setup_secret'], $_SESSION['totp_setup_at']);
+            Security::event((int)$user['id'], 'mfa_enabled', 'info', 'Authenticator MFA enabled');
+            $fresh = Auth::user();
+            if ($fresh) {
+                $fresh['totp_enabled'] = 1;
+                Auth::login($fresh);
+            }
+            Response::success(['totp_enabled' => true], 'Authenticator enabled');
+        }
+
+        if ($method === 'POST' && $sub === 'mfa/disable') {
+            $user = Auth::requireLogin(['admin', 'cashier', 'kitchen', 'customer']);
+            $b = $this->body();
+            $password = (string)($b['password'] ?? '');
+            $code = (string)($b['code'] ?? '');
+            $pdo = Database::connection();
+            $stmt = $pdo->prepare('SELECT * FROM users WHERE id = ? LIMIT 1');
+            $stmt->execute([(int)$user['id']]);
+            $row = $stmt->fetch();
+            if (!$row || !password_verify($password, $row['password_hash'])) {
+                Response::error('Password is incorrect', 400);
+            }
+            if (!empty($row['totp_enabled']) && !empty($row['totp_secret']) && !Totp::verify((string)$row['totp_secret'], $code)) {
+                Response::error('Invalid authenticator code', 400);
+            }
+            $pdo->prepare('UPDATE users SET totp_secret = NULL, totp_enabled = 0 WHERE id = ?')->execute([(int)$user['id']]);
+            Security::event((int)$user['id'], 'mfa_disabled', 'warning', 'Authenticator MFA disabled');
+            $fresh = Auth::user();
+            if ($fresh) {
+                $fresh['totp_enabled'] = 0;
+                Auth::login($fresh);
+            }
+            Response::success(['totp_enabled' => false], 'Authenticator disabled');
         }
 
         if ($method === 'POST' && $sub === 'manager-pin') {

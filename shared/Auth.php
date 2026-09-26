@@ -37,16 +37,60 @@ class Auth
             return null;
         }
         Security::successfulLogin((int)$user['id'], $email, $_SERVER['REMOTE_ADDR'] ?? 'unknown');
-        unset($user['password_hash']);
+        unset($user['password_hash'], $user['manager_pin_hash'], $user['totp_secret']);
         return $user;
     }
 
     public static function login(array $user): void
     {
         self::startSession();
+        unset($user['password_hash'], $user['manager_pin_hash'], $user['totp_secret']);
         $_SESSION['user'] = $user;
         $_SESSION['last_activity'] = time();
+        unset($_SESSION['mfa_pending_user_id'], $_SESSION['mfa_pending_at']);
         Security::csrfToken();
+    }
+
+    /** Password OK but TOTP still required — do not grant a full session yet. */
+    public static function beginMfaChallenge(int $userId): string
+    {
+        self::startSession();
+        session_regenerate_id(true);
+        $_SESSION['mfa_pending_user_id'] = $userId;
+        $_SESSION['mfa_pending_at'] = time();
+        unset($_SESSION['user']);
+        $token = bin2hex(random_bytes(16));
+        $_SESSION['mfa_challenge_token'] = $token;
+        Security::csrfToken();
+        return $token;
+    }
+
+    public static function pendingMfaUserId(?string $challengeToken = null): ?int
+    {
+        self::startSession();
+        $uid = (int)($_SESSION['mfa_pending_user_id'] ?? 0);
+        if ($uid < 1) {
+            return null;
+        }
+        $started = (int)($_SESSION['mfa_pending_at'] ?? 0);
+        if ($started < 1 || time() - $started > 300) {
+            unset($_SESSION['mfa_pending_user_id'], $_SESSION['mfa_pending_at'], $_SESSION['mfa_challenge_token']);
+            return null;
+        }
+        if ($challengeToken !== null && $challengeToken !== '') {
+            $expected = (string)($_SESSION['mfa_challenge_token'] ?? '');
+            if (!$expected || !hash_equals($expected, $challengeToken)) {
+                return null;
+            }
+        }
+        return $uid;
+    }
+
+    public static function publicUser(array $user): array
+    {
+        unset($user['password_hash'], $user['manager_pin_hash'], $user['totp_secret']);
+        $user['totp_enabled'] = !empty($user['totp_enabled']) ? 1 : 0;
+        return $user;
     }
 
     public static function logout(): void

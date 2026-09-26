@@ -466,20 +466,28 @@ html.dark .bg-banner-ember {
 
 .header-dropdown-wrap {
   position: relative;
+  z-index: 120;
+  overflow: visible;
 }
 .guest-header {
   position: sticky;
   top: 0;
-  z-index: 100 !important;
+  z-index: 100;
+  overflow: visible;
+  /* backdrop-filter clips absolute dropdowns in Chromium — keep solid glass instead */
+  background: color-mix(in srgb, #FFFCFA 96%, transparent);
+}
+.guest-header > * {
+  overflow: visible;
 }
 .guest-header .header-dropdown {
-  z-index: 110;
+  z-index: 130;
 }
 .header-dropdown {
   position: absolute;
   right: 0;
   top: calc(100% + 0.45rem);
-  z-index: 60;
+  z-index: 130;
   width: min(360px, calc(100vw - 1.5rem));
   max-height: min(70vh, 420px);
   overflow: auto;
@@ -577,7 +585,7 @@ html.dark .bg-banner-ember {
   position: fixed;
   top: 1rem;
   right: 1rem;
-  z-index: 100;
+  z-index: 500;
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
@@ -644,11 +652,11 @@ html.dark .bg-banner-ember {
 
 .rms-toast-close:hover { color: var(--ink); }
 
-/* Shared modal shell */
+/* Shared modal shell — above sticky guest/staff chrome (header ~100) */
 .rms-modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: 400;
   display: none;
   place-items: center;
   padding: 1.25rem;

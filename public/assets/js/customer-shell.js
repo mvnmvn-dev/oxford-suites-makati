@@ -143,8 +143,8 @@
       : `<a href="login.html" class="rounded-lg bg-[#A8342A] px-3 py-2 text-xs font-bold uppercase tracking-wide text-white hover:bg-[#8F2C24]">Sign in</a>`;
 
     return `
-    <header class="guest-header sticky top-0 z-40 border-b border-[#D9CFC2] bg-[#FFFCFA]/95 backdrop-blur-sm">
-      <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
+    <header class="guest-header sticky top-0 z-[100] overflow-visible border-b border-[#D9CFC2] bg-[#FFFCFA]">
+      <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 overflow-visible px-4 py-3 sm:px-6">
         <a href="${user ? 'index.html' : 'login.html'}" class="brand-mark">
           <img src="../assets/img/oxford-logo.jpg" alt="Oxford Suites" class="brand-logo" />
           <div class="brand-mark-text">
@@ -153,7 +153,7 @@
           </div>
         </a>
         <nav class="order-3 flex w-full flex-wrap items-center gap-0.5 sm:order-none sm:w-auto">${navLinks(active, user)}</nav>
-        <div class="flex flex-wrap items-center gap-2">${guestActions}</div>
+        <div class="relative z-[120] flex flex-wrap items-center gap-2 overflow-visible">${guestActions}</div>
       </div>
     </header>`;
   }
@@ -668,6 +668,10 @@
     const promo = options.showPromo !== false ? await promoStripHtml() : '';
     mount.innerHTML = headerHtml(active, user) + promo + accountModalsHtml(user);
     mount.classList.add('rms-enter-soft');
+    mount.classList.add('overflow-visible');
+    mount.style.overflow = 'visible';
+    mount.style.position = 'relative';
+    mount.style.zIndex = '100';
     bindAccountChrome(user);
     if (typeof RMS.bindModuleNavTransitions === 'function') RMS.bindModuleNavTransitions();
     return user;

@@ -33,7 +33,10 @@
       const status = document.getElementById('status-filter')?.value || '';
       const res = await RMS.api('/orders' + (status ? '?status=' + status : ''));
       document.getElementById('orders-body').innerHTML = res.data.map((o) => {
-        const canCancel = !['cancelled', 'paid'].includes(o.status);
+        const isServed = o.status === 'served';
+        const canVoidOrCancel = !['cancelled', 'paid'].includes(o.status);
+        const actionLabel = isServed ? 'Void' : 'Cancel';
+        const actionAttr = isServed ? 'data-void' : 'data-cancel';
         return `
         <tr class="border-b border-line/60 transition hover:bg-parchment/60">
           <td class="px-3 py-3"><strong class="text-sm">${o.order_number}</strong></td>
@@ -46,7 +49,7 @@
           <td class="px-3 py-3">
             <div class="flex flex-wrap gap-1.5">
               <button type="button" class="btn-sm" data-view="${o.id}">Details</button>
-              ${canCancel ? `<button type="button" class="btn-sm" data-cancel="${o.id}">Cancel</button>` : ''}
+              ${canVoidOrCancel ? `<button type="button" class="btn-sm" ${actionAttr}="${o.id}" data-order-status="${o.status}">${actionLabel}</button>` : ''}
             </div>
           </td>
         </tr>`;
@@ -109,17 +112,22 @@
             try { await openDetail(view.dataset.view); } catch (ex) { RMS.toast(ex.message, 'error'); }
             return;
           }
-          const btn = e.target.closest('[data-cancel]');
+          const btn = e.target.closest('[data-cancel], [data-void]');
           if (!btn) return;
-          if (!await RMS.confirm('Cancel this order and restore inventory?', { title: 'Cancel order', confirmLabel: 'Cancel order' })) return;
-          const managerPin = await RMS.requestManagerPin('void this order');
+          const orderId = btn.dataset.cancel || btn.dataset.void;
+          const isVoid = btn.hasAttribute('data-void') || btn.dataset.orderStatus === 'served';
+          const ok = isVoid
+            ? await RMS.confirm('Void this served order? Inventory will be restored and a manager PIN is required.', { title: 'Void served order', confirmLabel: 'Void order' })
+            : await RMS.confirm('Cancel this order and restore inventory?', { title: 'Cancel order', confirmLabel: 'Cancel order' });
+          if (!ok) return;
+          const managerPin = await RMS.requestManagerPin(isVoid ? 'void this served order' : 'void this order');
           if (!managerPin) return;
           try {
-            await RMS.api(`/orders/${btn.dataset.cancel}/status`, {
+            await RMS.api(`/orders/${orderId}/status`, {
               method: 'PATCH',
               body: { status: 'cancelled', manager_pin: managerPin },
             });
-            RMS.toast('Order cancelled — stock restored');
+            RMS.toast(isVoid ? 'Order voided — stock restored' : 'Order cancelled — stock restored');
             await loadOrders();
           } catch (ex) {
             RMS.toast(ex.message, 'error');

@@ -44,7 +44,7 @@
               <div class="grid grid-cols-2 gap-3">
                 <div>
                   <label class="mb-1 block text-xs font-semibold text-[#6B635C]">Date</label>
-                  <input id="date" type="date" required class="field" />
+                  <input id="date" type="date" required class="field" min="" />
                 </div>
                 <div>
                   <label class="mb-1 block text-xs font-semibold text-[#6B635C]">Time</label>
@@ -112,7 +112,10 @@
           const d = String(date.getDate()).padStart(2, '0');
           return `${y}-${m}-${d}`;
         }
-        document.getElementById('date').value = localDateString();
+        const todayStr = localDateString();
+        const dateInput = document.getElementById('date');
+        dateInput.min = todayStr;
+        dateInput.value = todayStr;
 
         let calCursor = new Date();
         calCursor.setDate(1);
@@ -128,7 +131,6 @@
           mine.forEach((r) => { (byDay[r.reservation_date] = byDay[r.reservation_date] || []).push(r); });
           const firstDow = new Date(calCursor.getFullYear(), calCursor.getMonth(), 1).getDay();
           const daysInMonth = new Date(calCursor.getFullYear(), calCursor.getMonth() + 1, 0).getDate();
-          const todayStr = localDateString();
           const selected = document.getElementById('date').value;
           const heads = ['S','M','T','W','T','F','S'].map((d) =>
             `<div class="bg-[#F6F1E9] py-1.5 text-[10px] font-bold text-[#6B635C]">${d}</div>`
@@ -140,8 +142,9 @@
             const has = (byDay[ds] || []).length;
             const isSel = ds === selected;
             const isToday = ds === todayStr;
-            cells += `<button type="button" data-cal-day="${ds}" class="min-h-[52px] bg-[#FFFCFA] p-1 transition hover:bg-[#F3ECE1] ${isSel ? 'ring-2 ring-inset ring-[#A8342A]' : ''}">
-              <span class="inline-grid h-6 w-6 place-items-center rounded-full text-xs font-semibold ${isToday ? 'bg-[#A8342A] text-white' : 'text-[#241E1C]'}">${day}</span>
+            const isPast = ds < todayStr;
+            cells += `<button type="button" data-cal-day="${ds}" ${isPast ? 'disabled' : ''} class="min-h-[52px] bg-[#FFFCFA] p-1 transition ${isPast ? 'cursor-not-allowed opacity-40' : 'hover:bg-[#F3ECE1]'} ${isSel ? 'ring-2 ring-inset ring-[#A8342A]' : ''}">
+              <span class="inline-grid h-6 w-6 place-items-center rounded-full text-xs font-semibold ${isToday ? 'bg-[#A8342A] text-white' : isPast ? 'text-[#9A9188]' : 'text-[#241E1C]'}">${day}</span>
               ${has ? `<span class="mt-0.5 block text-[9px] font-bold text-[#A67C3A]">${has} booked</span>` : ''}
             </button>`;
           }
@@ -151,7 +154,11 @@
         document.getElementById('cal-next').onclick = () => { calCursor.setMonth(calCursor.getMonth() + 1); drawGuestCal(); };
         document.getElementById('guest-cal').onclick = (e) => {
           const btn = e.target.closest('[data-cal-day]');
-          if (!btn) return;
+          if (!btn || btn.disabled) return;
+          if (btn.dataset.calDay < todayStr) {
+            RMS.toast('Cannot book a reservation for a past date', 'error');
+            return;
+          }
           document.getElementById('date').value = btn.dataset.calDay;
           drawGuestCal();
           loadTables();
@@ -225,6 +232,13 @@
         document.getElementById('form').addEventListener('submit', async (e) => {
           e.preventDefault();
           const msg = document.getElementById('msg');
+          const reservationDate = document.getElementById('date').value;
+          if (reservationDate < localDateString()) {
+            msg.className = 'text-sm text-[#A8342A]';
+            msg.textContent = 'Cannot book a reservation for a past date';
+            RMS.toast(msg.textContent, 'error');
+            return;
+          }
           try {
             await RMS.api('/reservations', {
               method: 'POST',
@@ -234,7 +248,7 @@
                 customer_email: document.getElementById('email').value,
                 customer_phone: document.getElementById('phone').value,
                 party_size: Number(document.getElementById('party').value),
-                reservation_date: document.getElementById('date').value,
+                reservation_date: reservationDate,
                 reservation_time: document.getElementById('time').value,
                 seating_pref: document.getElementById('seating').value,
                 table_id: document.getElementById('table-id').value ? Number(document.getElementById('table-id').value) : null,

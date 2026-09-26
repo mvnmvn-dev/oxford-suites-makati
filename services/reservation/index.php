@@ -162,6 +162,14 @@ class ReservationService
             if (empty($b['customer_name']) || empty($b['party_size']) || empty($b['reservation_date']) || empty($b['reservation_time'])) {
                 Response::error('customer_name, party_size, reservation_date, reservation_time required');
             }
+            $reservationDate = (string)$b['reservation_date'];
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $reservationDate)) {
+                Response::error('reservation_date must be YYYY-MM-DD');
+            }
+            $today = date('Y-m-d');
+            if ($reservationDate < $today) {
+                Response::error('Cannot book a reservation for a past date');
+            }
             $stmt = $pdo->prepare(
                 'INSERT INTO reservations (customer_id, customer_name, customer_email, customer_phone, party_size, table_id, reservation_date, reservation_time, status, notes, seating_pref)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'

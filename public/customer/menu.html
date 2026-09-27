@@ -9,7 +9,7 @@
   <script src="../assets/js/theme-boot.js"></script>
   <script>try { if (!localStorage.getItem('oxford-rms-theme')) localStorage.setItem('oxford-rms-theme', 'light'); } catch (e) {}</script>
   <link rel="stylesheet" href="../assets/css/tailwind.css" />
-  <link rel="stylesheet" href="../assets/css/app.css?v=19" />
+  <link rel="stylesheet" href="../assets/css/app.css?v=20" />
   <style>
     .guest-menu body {
       position: relative;
@@ -305,10 +305,20 @@
       background: #FFFCFA;
       border: 1px solid #D9CFC2;
       max-height: min(55vh,440px);
-      transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.28s ease;
+      overflow: hidden;
+      transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.28s ease, max-height 0.28s ease, margin 0.28s ease, border-width 0.28s ease;
     }
-    .guest-menu .cart-sheet.is-closed { pointer-events: none; opacity: 0; transform: translateY(16px); }
-    .guest-menu .cart-bar { background: #1C1412; color: #FFFCFA; }
+    /* Collapse when closed — invisible sheet height was blocking menu taps */
+    .guest-menu .cart-sheet.is-closed {
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(16px);
+      max-height: 0 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      border-width: 0 !important;
+    }
+    .guest-menu .cart-bar { background: #1C1412; color: #FFFCFA; position: relative; z-index: 1; }
     .guest-menu .qty-btn { border: 1px solid #D9CFC2; background: #FFF; transition: background 0.15s ease, transform 0.15s ease; }
     .guest-menu .qty-btn:hover { background: #F3ECE1; }
     .guest-menu .qty-btn:active { transform: scale(0.94); }
@@ -466,7 +476,7 @@
     </div>
   </div>
 
-  <script src="../assets/js/app.js?v=4"></script>
+  <script src="../assets/js/app.js?v=5"></script>
   <script src="../assets/js/customer-shell.js?v=4"></script>
   <script>
     const params = new URLSearchParams(location.search);
@@ -753,6 +763,10 @@
         return;
       }
       dock.classList.remove('hidden');
+      // Keep dock from swallowing menu taps outside the visible bar/sheet
+      dock.style.pointerEvents = 'none';
+      document.querySelector('.cart-bar')?.style.setProperty('pointer-events', 'auto');
+      sheet.style.pointerEvents = cartOpen ? 'auto' : 'none';
       positionServiceFab(true);
       document.getElementById('cart-count').textContent = qty + (qty === 1 ? ' item' : ' items');
       document.getElementById('cart-total').textContent = RMS.money(total) + ' · VAT at checkout';

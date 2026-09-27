@@ -1176,10 +1176,12 @@ html.rms-module-exit .suite-header {
 
 .rms-modal-backdrop {
   opacity: 0;
+  pointer-events: none;
   transition: opacity var(--dur-med) ease, backdrop-filter var(--dur-med) ease;
 }
 .rms-modal-backdrop.is-open {
   opacity: 1;
+  pointer-events: auto;
 }
 .rms-modal-backdrop .rms-modal {
   opacity: 0;
@@ -1242,12 +1244,17 @@ html.rms-module-exit .suite-header {
 }
 
 .cart-sheet {
-  transition: transform var(--dur-med) var(--ease-suite), opacity var(--dur-med) ease;
+  transition: transform var(--dur-med) var(--ease-suite), opacity var(--dur-med) ease, max-height var(--dur-med) ease;
 }
 .cart-sheet.is-closed {
   opacity: 0;
   transform: translateY(12px);
   pointer-events: none;
+  max-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border-width: 0 !important;
 }
 
 .brand-logo {

@@ -752,6 +752,7 @@
       m.__rmsModalPlaceholder = placeholder;
       document.body.appendChild(m);
     }
+    m.style.pointerEvents = '';
     m.classList.remove('hidden');
     m.classList.add('grid');
     // Force reflow so the enter transition runs
@@ -764,12 +765,15 @@
     const m = document.getElementById(id);
     if (!m) return;
     m.classList.remove('is-open');
+    // Stop intercepting taps immediately while the fade-out runs
+    m.style.pointerEvents = 'none';
     const reduced =
       document.documentElement.classList.contains('a11y-reduced-motion') ||
       (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     const finish = () => {
       m.classList.add('hidden');
       m.classList.remove('grid');
+      m.style.pointerEvents = '';
       const placeholder = m.__rmsModalPlaceholder;
       if (placeholder) {
         if (placeholder.parentNode) {

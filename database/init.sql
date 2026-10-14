@@ -56,6 +56,7 @@ CREATE TABLE menu_items (
   price DECIMAL(10,2) NOT NULL,
   image_url VARCHAR(255) DEFAULT NULL,
   is_available TINYINT(1) NOT NULL DEFAULT 1,
+  is_enabled TINYINT(1) NOT NULL DEFAULT 1,
   is_featured TINYINT(1) NOT NULL DEFAULT 0,
   prep_minutes INT DEFAULT 15,
   tags VARCHAR(255) DEFAULT NULL,

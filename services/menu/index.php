@@ -14,6 +14,7 @@ class MenuService
     {
         $sub = $_SERVER['RMS_SUBPATH'] ?? '';
         $method = $this->method();
+        Security::ensureSchema();
         $pdo = Database::connection();
 
         if ($method === 'GET' && ($sub === '' || $sub === 'items')) {
@@ -57,6 +58,17 @@ class MenuService
                 $grouped[$opt['option_group']][] = $opt;
             }
             Response::success(['options' => $rows, 'groups' => $grouped]);
+        }
+
+        if ($method === 'GET' && preg_match('/^items\/(\d+)\/recipe$/', $sub, $m)) {
+            Auth::requireLogin(['admin', 'kitchen']);
+            $stmt = $pdo->prepare(
+                'SELECT ri.inventory_item_id, ri.quantity_used, ii.name, ii.unit, ii.quantity, ii.reorder_level
+                 FROM recipe_ingredients ri JOIN inventory_items ii ON ii.id = ri.inventory_item_id
+                 WHERE ri.menu_item_id = ? ORDER BY ii.name'
+            );
+            $stmt->execute([(int)$m[1]]);
+            Response::success($stmt->fetchAll());
         }
 
         if ($method === 'GET' && $sub === 'favorites') {
@@ -187,22 +199,29 @@ class MenuService
         if ($method === 'POST' && ($sub === '' || $sub === 'items')) {
             Auth::requireLogin(['admin']);
             $b = $this->body();
+            $pdo->beginTransaction();
             $stmt = $pdo->prepare(
-                'INSERT INTO menu_items (category_id, name, description, price, image_url, is_available, is_featured, prep_minutes, tags)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO menu_items (category_id, name, description, price, image_url, is_available, is_enabled, is_featured, prep_minutes, tags)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
+            $enabled = isset($b['is_available']) ? (int)$b['is_available'] : 1;
             $stmt->execute([
                 (int)$b['category_id'],
                 $b['name'],
                 $b['description'] ?? null,
                 (float)$b['price'],
                 $b['image_url'] ?? null,
-                isset($b['is_available']) ? (int)$b['is_available'] : 1,
+                $enabled,
+                $enabled,
                 isset($b['is_featured']) ? (int)$b['is_featured'] : 0,
                 (int)($b['prep_minutes'] ?? 15),
                 $b['tags'] ?? null,
             ]);
-            Response::success(['id' => (int)$pdo->lastInsertId()], 'Menu item created', 201);
+            $id = (int)$pdo->lastInsertId();
+            $this->saveRecipe($pdo, $id, $b['recipe_ingredients'] ?? []);
+            $pdo->commit();
+            InventorySync::syncMenuAvailability($pdo, [$id]);
+            Response::success(['id' => $id], 'Menu item created', 201);
         }
 
         if ($method === 'PUT' && preg_match('/^items\/(\d+)$/', $sub, $m)) {
@@ -216,8 +235,9 @@ class MenuService
             if (abs((float)$currentPrice - (float)($b['price'] ?? 0)) > 0.0001) {
                 Security::requireManagerPin($b, 'change menu price', $id);
             }
+            $enabled = isset($b['is_available']) ? (int)$b['is_available'] : 1;
             $stmt = $pdo->prepare(
-                'UPDATE menu_items SET category_id=?, name=?, description=?, price=?, image_url=?, is_available=?, is_featured=?, prep_minutes=?, tags=? WHERE id=?'
+                'UPDATE menu_items SET category_id=?, name=?, description=?, price=?, image_url=?, is_available=?, is_enabled=?, is_featured=?, prep_minutes=?, tags=? WHERE id=?'
             );
             $stmt->execute([
                 (int)$b['category_id'],
@@ -225,12 +245,17 @@ class MenuService
                 $b['description'] ?? null,
                 (float)$b['price'],
                 $b['image_url'] ?? null,
-                (int)($b['is_available'] ?? 1),
+                $enabled,
+                $enabled,
                 (int)($b['is_featured'] ?? 0),
                 (int)($b['prep_minutes'] ?? 15),
                 $b['tags'] ?? null,
                 $id,
             ]);
+            if (array_key_exists('recipe_ingredients', $b)) {
+                $this->saveRecipe($pdo, $id, $b['recipe_ingredients']);
+                InventorySync::syncMenuAvailability($pdo, [$id]);
+            }
             Response::success(['id' => $id], 'Menu item updated');
         }
 
@@ -242,18 +267,42 @@ class MenuService
             if ($next === 1 && !InventorySync::canServe($pdo, $id, 1)) {
                 Response::error('Cannot restore — inventory is low or insufficient for this dish. Restock first.', 400);
             }
-            $pdo->prepare('UPDATE menu_items SET is_available = ? WHERE id = ?')
-                ->execute([$next, $id]);
+            $pdo->prepare('UPDATE menu_items SET is_enabled = ?, is_available = ? WHERE id = ?')
+                ->execute([$next, $next, $id]);
             Response::success(null, 'Availability updated');
         }
 
         if ($method === 'DELETE' && preg_match('/^items\/(\d+)$/', $sub, $m)) {
             Auth::requireLogin(['admin']);
-            $pdo->prepare('UPDATE menu_items SET is_available = 0 WHERE id = ?')->execute([(int)$m[1]]);
+            $pdo->prepare('UPDATE menu_items SET is_enabled = 0, is_available = 0 WHERE id = ?')->execute([(int)$m[1]]);
             Response::success(null, 'Menu item disabled');
         }
 
         Response::error('Menu route not found', 404);
+    }
+
+    private function saveRecipe(PDO $pdo, int $menuId, $ingredients): void
+    {
+        if (!is_array($ingredients)) {
+            Response::error('recipe_ingredients must be an array');
+        }
+        $pdo->prepare('DELETE FROM recipe_ingredients WHERE menu_item_id = ?')->execute([$menuId]);
+        $insert = $pdo->prepare('INSERT INTO recipe_ingredients (menu_item_id, inventory_item_id, quantity_used) VALUES (?, ?, ?)');
+        $seen = [];
+        foreach ($ingredients as $ingredient) {
+            $inventoryId = (int)($ingredient['inventory_item_id'] ?? 0);
+            $quantity = (float)($ingredient['quantity_used'] ?? 0);
+            if (!$inventoryId || $quantity <= 0 || isset($seen[$inventoryId])) {
+                continue;
+            }
+            $check = $pdo->prepare('SELECT id FROM inventory_items WHERE id = ?');
+            $check->execute([$inventoryId]);
+            if (!$check->fetchColumn()) {
+                Response::error('Recipe ingredient not found: ' . $inventoryId, 400);
+            }
+            $insert->execute([$menuId, $inventoryId, $quantity]);
+            $seen[$inventoryId] = true;
+        }
     }
 }
 

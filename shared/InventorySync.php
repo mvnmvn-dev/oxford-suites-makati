@@ -64,7 +64,8 @@ class InventorySync
             'SELECT ri.quantity_used, ii.id, ii.name, ii.quantity, ii.unit
              FROM recipe_ingredients ri
              JOIN inventory_items ii ON ii.id = ri.inventory_item_id
-             WHERE ri.menu_item_id = ?'
+             WHERE ri.menu_item_id = ?
+             FOR UPDATE'
         );
         $recipe->execute([$menuItemId]);
         $rows = $recipe->fetchAll();
@@ -176,12 +177,13 @@ class InventorySync
             return;
         }
 
-        $sql = 'SELECT DISTINCT menu_item_id FROM recipe_ingredients';
         $params = [];
         if ($menuItemIds !== null) {
             $placeholders = implode(',', array_fill(0, count($menuItemIds), '?'));
-            $sql .= " WHERE menu_item_id IN ($placeholders)";
+            $sql = "SELECT id AS menu_item_id FROM menu_items WHERE id IN ($placeholders)";
             $params = array_map('intval', $menuItemIds);
+        } else {
+            $sql = 'SELECT DISTINCT menu_item_id FROM recipe_ingredients';
         }
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
@@ -190,7 +192,10 @@ class InventorySync
         foreach ($stmt->fetchAll() as $row) {
             $menuId = (int)$row['menu_item_id'];
             $ok = self::canServe($pdo, $menuId, 1);
-            $upd->execute([$ok ? 1 : 0, $menuId]);
+            $enabled = $pdo->prepare('SELECT is_enabled FROM menu_items WHERE id = ?');
+            $enabled->execute([$menuId]);
+            $isEnabled = $enabled->fetchColumn();
+            $upd->execute([$ok && (int)$isEnabled === 1 ? 1 : 0, $menuId]);
         }
     }
 

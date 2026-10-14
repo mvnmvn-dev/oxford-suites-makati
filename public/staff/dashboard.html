@@ -17,95 +17,132 @@
   <script>
     RMS.mountStaffPage({
       title: 'Dining floor overview',
-      subtitle: 'Tonight’s pulse across tables, kitchen tickets, and the suite dining room.',
-      async render(body) {
+      subtitle: 'A live operating view across sales, service, kitchen, and stock.',
+      async render(body, user) {
         const analytics = await RMS.api('/analytics');
-        const k = analytics.data.kpis;
-        const maxRev = Math.max(...analytics.data.sales_trend.map((d) => Number(d.revenue) || 0), 1);
+        const data = analytics.data || {};
+        const k = data.kpis || {};
+        const overview = data.module_overview || {};
+        const inventory = overview.inventory_health || {};
+        const peak = data.demand_rushes || {};
+        const actions = quickActions(user?.role);
 
         body.innerHTML = `
-          <div class="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            ${kpi('Orders today', k.orders_today, 'Across QR & POS', 'ember')}
-            ${kpi('Revenue today', RMS.money(k.revenue_today), 'Incl. open tickets', 'brass', true)}
-            ${kpi('Occupied tables', k.occupied_tables, 'On the floor now', 'sage')}
-            ${kpi('Kitchen queue', k.kitchen_queue, k.low_stock_items + ' low-stock items', 'clay')}
-          </div>
-          <div class="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-            <div class="rounded-2xl border border-line bg-parchment-light p-5">
-              <div class="flex items-start justify-between gap-3"><div><h3 class="font-display text-lg font-semibold">Revenue trend</h3><p class="mt-1 text-xs text-charcoal-muted">${k.scope === 'system-wide' ? 'System-wide view across all users and modules' : 'Your user-based activity view'}</p></div><span class="rounded-full bg-brass/20 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-brass-deep">${k.scope || 'user-based'}</span></div>
-              <div class="mt-4 flex h-36 items-end gap-1.5" id="trend-chart">
-                ${analytics.data.sales_trend.map((d) => {
-                  const h = Math.round((Number(d.revenue) / maxRev) * 100);
-                  return `<div class="group relative flex-1 rounded-t bg-gradient-to-t from-ember to-brass opacity-90 transition hover:opacity-100" style="height:${h}%" title="${RMS.money(d.revenue)}">
-                    <span class="absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] text-charcoal-muted">${String(d.day).slice(5)}</span>
-                  </div>`;
-                }).join('')}
-              </div>
+          <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p class="text-xs font-semibold uppercase tracking-[0.14em] text-ember">Operations snapshot</p>
+              <p class="mt-1 text-sm text-charcoal-muted">Live metrics from the current RMS workspace · refreshed ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
             </div>
-            <div class="rounded-2xl border border-line bg-parchment-light p-5">
-              <h3 class="font-display text-lg font-semibold">Signature movers</h3>
-              <div class="mt-3 divide-y divide-line/70">
-                ${analytics.data.top_items.map((i) => `
-                  <div class="flex items-center justify-between gap-3 py-2.5 text-sm">
-                    <span class="font-medium">${i.name}</span>
-                    <span class="text-charcoal-muted">${i.sold} · ${RMS.money(i.revenue)}</span>
-                  </div>`).join('')}
-              </div>
-            </div>
+            <button id="dashboard-refresh" type="button" class="btn-sm">Refresh data</button>
           </div>
-          <div class="mt-4 rounded-2xl border border-line bg-parchment-light p-5"><h3 class="font-display text-lg font-semibold">Order status mix</h3><div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">${(analytics.data.order_status || []).map((s) => `<div><div class="flex justify-between text-xs"><span class="capitalize">${String(s.status).replaceAll('_',' ')}</span><strong>${s.count}</strong></div><div class="mt-1 h-2 overflow-hidden rounded-full bg-line/60"><div class="h-full rounded-full bg-ember" style="width:${Math.min(100, Math.max(4, Number(s.count) / Math.max(...(analytics.data.order_status || []).map((x)=>Number(x.count)||0),1)*100))}%"></div></div></div>`).join('') || '<p class="text-sm text-charcoal-muted">No order activity yet.</p>'}</div></div>
-          <div class="mt-4 grid gap-4 lg:grid-cols-3">
-            <div class="rounded-2xl border border-line bg-parchment-light p-5"><h3 class="font-display text-lg font-semibold">Channel performance</h3><p class="mt-1 text-xs text-charcoal-muted">Orders by QR, POS, and online source.</p><div class="mt-4">${dashboardBars(analytics.data.module_overview?.orders_by_source, 'source', 'count', 'bg-ember')}</div></div>
-            <div class="rounded-2xl border border-line bg-parchment-light p-5"><h3 class="font-display text-lg font-semibold">Floor utilization</h3><p class="mt-1 text-xs text-charcoal-muted">Live table state across the dining floor.</p><div class="mt-4">${dashboardBars(analytics.data.module_overview?.tables, 'status', 'count', 'bg-sage')}</div></div>
-            <div class="rounded-2xl border border-line bg-parchment-light p-5"><h3 class="font-display text-lg font-semibold">Actionable insights</h3><div class="mt-3 space-y-2">${(analytics.data.insights || []).slice(0, 4).map((i) => `<div class="rounded-xl border border-line bg-surface p-3 text-xs leading-relaxed"><span class="mr-1 font-semibold text-ember">•</span>${i}</div>`).join('') || '<p class="text-sm text-charcoal-muted">Insights will appear as activity is recorded.</p>'}</div></div>
-          </div>
-          <div class="mt-4 rounded-2xl border border-line bg-parchment-light p-5">
-            <h3 class="font-display text-lg font-semibold">Chef’s recommendations</h3>
-            <p class="mt-1 text-xs text-charcoal-muted">Collaborative filtering from the ML service</p>
-            <div id="recs" class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"></div>
-          </div>`;
 
+          <section aria-label="Quick actions" class="mb-5 rounded-2xl border border-line bg-gradient-to-br from-charcoal to-[#3A2925] p-5 text-white shadow-suite">
+            <div class="flex flex-wrap items-end justify-between gap-3">
+              <div><p class="text-[10px] font-bold uppercase tracking-[0.16em] text-brass-soft">Quick navigation</p><h3 class="mt-1 font-display text-xl font-semibold">Move the floor forward</h3></div>
+              <span class="text-xs text-white/60">${String(user?.role || 'staff').replace(/^./, (c) => c.toUpperCase())} workspace</span>
+            </div>
+            <div class="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">${actions.map((a) => `<a href="${a.href}" class="group flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-3 transition hover:-translate-y-0.5 hover:bg-white/10"><span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg ${a.tone}">${a.icon}</span><span><strong class="block text-sm">${a.label}</strong><small class="text-[11px] text-white/60">${a.hint}</small></span><span class="ml-auto text-white/40 transition group-hover:translate-x-1">→</span></a>`).join('')}</div>
+          </section>
+
+          <section class="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Key performance indicators">
+            ${kpi('Orders today', k.orders_today, 'QR + POS activity', 'ember')}
+            ${kpi('Revenue today', RMS.money(k.revenue_today), 'Open and completed tickets', 'brass', true)}
+            ${kpi('Occupied tables', k.occupied_tables, `${k.reservations_today || 0} reservations today`, 'sage')}
+            ${kpi('Kitchen queue', k.kitchen_queue, `${k.avg_prep_minutes || 0} min avg prep`, 'clay')}
+            ${kpi('Menu availability', `${overview.menu?.available || 0}/${overview.menu?.total || 0}`, `${overview.menu?.featured || 0} featured dishes live`, 'sage')}
+            ${kpi('Low-stock items', inventory.low || k.low_stock_items || 0, `${inventory.expiring_7d || 0} expiring within 7 days`, 'clay')}
+            ${kpi('Guest rating', Number(k.customer_rating || 0).toFixed(2), `${data.satisfaction?.responses || 0} feedback responses`, 'brass')}
+            ${kpi('Waste cost', RMS.money(k.waste_cost_30d), 'Last 30 days', 'ember', true)}
+          </section>
+
+          <section class="grid gap-4 xl:grid-cols-[1.5fr_1fr]">
+            <article class="rounded-2xl border border-line bg-parchment-light p-5">
+              <div class="flex items-start justify-between gap-3"><div><h3 class="font-display text-lg font-semibold">Revenue & item trend</h3><p class="mt-1 text-xs text-charcoal-muted">Daily sales performance over the last 14 days</p></div><span class="rounded-full bg-brass/20 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-brass-deep">${k.scope || 'user-based'}</span></div>
+              <div class="mt-5">${trendChart(data.sales_trend || [])}</div>
+            </article>
+            <article class="rounded-2xl border border-line bg-parchment-light p-5">
+              <h3 class="font-display text-lg font-semibold">Order status mix</h3><p class="mt-1 text-xs text-charcoal-muted">Where today’s tickets are in the service flow</p>
+              <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">${statusCards(data.order_status || [])}</div>
+            </article>
+          </section>
+
+          <section class="mt-4 grid gap-4 lg:grid-cols-3">
+            <article class="rounded-2xl border border-line bg-parchment-light p-5"><h3 class="font-display text-lg font-semibold">Demand windows</h3><p class="mt-1 text-xs text-charcoal-muted">Order volume by hour over the last 30 days</p><div class="mt-4">${hourChart(peak.peak_hours || [])}</div><div class="mt-4 grid grid-cols-2 gap-2">${metricTile('Lunch rush', peak.lunch_orders_30d || 0, 'orders', 'bg-brass')}${metricTile('Dinner rush', peak.dinner_orders_30d || 0, 'orders', 'bg-ember')}</div></article>
+            <article class="rounded-2xl border border-line bg-parchment-light p-5"><h3 class="font-display text-lg font-semibold">Inventory health</h3><p class="mt-1 text-xs text-charcoal-muted">Stock value and replenishment signals</p><div class="mt-4 grid grid-cols-2 gap-2">${metricTile('Stock value', RMS.money(inventory.stock_value), 'on hand', 'bg-sage')}${metricTile('Tracked items', inventory.total || 0, 'ingredients', 'bg-brass')}${metricTile('Reorder now', inventory.low || 0, 'items', 'bg-ember')}${metricTile('Expiring soon', inventory.expiring_7d || 0, 'within 7 days', 'bg-clay')}</div><div class="mt-4 rounded-xl border border-line bg-surface p-3 text-xs text-charcoal-muted">${(data.insights || [])[1] || 'Inventory signals will appear as stock activity is recorded.'}</div></article>
+            <article class="rounded-2xl border border-line bg-parchment-light p-5"><h3 class="font-display text-lg font-semibold">Guest experience</h3><p class="mt-1 text-xs text-charcoal-muted">Service quality and response signals</p><div class="mt-4 flex items-center gap-4 rounded-xl border border-line bg-surface p-3"><div class="grid h-14 w-14 place-items-center rounded-full bg-brass/20 font-display text-xl font-semibold text-brass-deep">${Number(k.customer_rating || 0).toFixed(1)}</div><div><strong class="block text-sm">Average guest rating</strong><span class="text-xs text-charcoal-muted">${data.satisfaction?.responses || 0} responses collected</span></div></div><div class="mt-4 space-y-2">${satisfactionBars(data.satisfaction || {})}</div><p class="mt-4 text-xs text-charcoal-muted">Avg waiter response: <strong class="text-charcoal">${k.avg_waiter_response_minutes || 0} min</strong></p></article>
+          </section>
+
+          <section class="mt-4 grid gap-4 lg:grid-cols-2">
+            <article class="rounded-2xl border border-line bg-parchment-light p-5"><div class="flex items-start justify-between"><div><h3 class="font-display text-lg font-semibold">Signature movers</h3><p class="mt-1 text-xs text-charcoal-muted">Top-selling dishes over the last 30 days</p></div><a href="analytics.html" class="btn-sm">Full analytics</a></div><div class="mt-3 divide-y divide-line/70">${(data.top_items || []).slice(0, 6).map((i, index) => `<div class="flex items-center gap-3 py-2.5 text-sm"><span class="grid h-6 w-6 place-items-center rounded-full bg-ember/10 text-[10px] font-bold text-ember">${index + 1}</span><span class="min-w-0 flex-1 truncate font-medium">${i.name}</span><span class="text-right text-xs text-charcoal-muted"><strong class="block text-charcoal">${i.sold} sold</strong>${RMS.money(i.revenue)}</span></div>`).join('') || emptyState('No sales data yet.')}</div></article>
+            <article class="rounded-2xl border border-line bg-parchment-light p-5"><h3 class="font-display text-lg font-semibold">7-day demand forecast</h3><p class="mt-1 text-xs text-charcoal-muted">Dishes with the strongest projected demand</p><div class="mt-3 space-y-2">${(data.demand_forecast || []).slice(0, 6).map((f) => `<div class="flex items-center gap-3 rounded-xl border border-line bg-surface px-3 py-2.5"><span class="grid h-8 w-8 place-items-center rounded-lg bg-sage/15 text-sage-deep">↗</span><span class="min-w-0 flex-1 truncate text-sm font-medium">${f.name}</span><span class="text-right text-xs"><strong class="block text-charcoal">${f.next_7_days || 0}</strong><span class="text-charcoal-muted">projected units</span></span></div>`).join('') || emptyState('Forecast data will appear after sales are recorded.')}</div></article>
+          </section>
+
+          <section class="mt-4 grid gap-4 lg:grid-cols-3">
+            <article class="rounded-2xl border border-line bg-parchment-light p-5"><h3 class="font-display text-lg font-semibold">Reservations pulse</h3><p class="mt-1 text-xs text-charcoal-muted">Reservation status in the last 30 days</p><div class="mt-4">${dashboardBars(overview.reservations_by_status, 'status', 'count', 'bg-brass')}</div></article>
+            <article class="rounded-2xl border border-line bg-parchment-light p-5"><h3 class="font-display text-lg font-semibold">Payment mix</h3><p class="mt-1 text-xs text-charcoal-muted">Completed payments by method</p><div class="mt-4">${dashboardBars(overview.payments_by_method, 'method', 'amount', 'bg-sage', true)}</div></article>
+            <article class="rounded-2xl border border-line bg-parchment-light p-5"><h3 class="font-display text-lg font-semibold">Actionable insights</h3><div class="mt-3 space-y-2">${(data.insights || []).slice(0, 5).map((i) => `<div class="rounded-xl border border-line bg-surface p-3 text-xs leading-relaxed"><span class="mr-1 font-semibold text-ember">•</span>${i}</div>`).join('') || emptyState('Insights will appear as activity is recorded.')}</div></article>
+          </section>
+
+          <section class="mt-4 rounded-2xl border border-line bg-parchment-light p-5"><div class="flex items-start justify-between gap-3"><div><h3 class="font-display text-lg font-semibold">Chef’s recommendations</h3><p class="mt-1 text-xs text-charcoal-muted">Collaborative filtering from recent guest behavior</p></div><a href="menu.html" class="btn-sm">Open menu</a></div><div id="recs" class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"></div></section>`;
+
+        document.getElementById('dashboard-refresh')?.addEventListener('click', () => location.reload());
         try {
-          const [ml, menuRes] = await Promise.all([
-            RMS.api('/ml/recommend?customer_id=1&limit=4'),
-            RMS.api('/menu/items').catch(() => ({ data: [] })),
-          ]);
+          const [ml, menuRes] = await Promise.all([RMS.api('/ml/recommend?customer_id=1&limit=4'), RMS.api('/menu/items').catch(() => ({ data: [] }))]);
           const byId = Object.fromEntries((menuRes.data || []).map((i) => [String(i.id), i]));
           const recs = (ml.data.recommendations || []).map((r) => ({ ...r, ...(byId[String(r.id)] || {}) }));
-          document.getElementById('recs').innerHTML = recs.map((r) => dishCard(r)).join('')
-            || '<p class="col-span-full py-8 text-center text-sm text-charcoal-muted">No recommendations yet.</p>';
-        } catch (e) {
-          document.getElementById('recs').innerHTML = '<p class="col-span-full py-6 text-center text-sm text-charcoal-muted">ML offline — dashboard metrics only.</p>';
+          document.getElementById('recs').innerHTML = recs.map((r) => dishCard(r)).join('') || emptyState('No recommendations yet.', true);
+        } catch (_) {
+          document.getElementById('recs').innerHTML = emptyState('ML offline — operational dashboard remains available.', true);
         }
       },
     });
 
+    function quickActions(role) {
+      const all = [
+        ['New order', 'orders.html', 'Review and route tickets', 'bg-ember', '＋'],
+        ['Open POS', 'pos.html', 'Start counter billing', 'bg-brass', '₱'],
+        ['Kitchen board', 'kitchen.html', 'Manage active tickets', 'bg-clay', '⌁'],
+        ['Inventory', 'inventory.html', 'Restock and log waste', 'bg-sage', '▦'],
+        ['Menu manager', 'menu.html', 'Update dishes and recipes', 'bg-ember', '≋'],
+        ['Reservations', 'reservations.html', 'View today’s bookings', 'bg-brass', '□'],
+        ['Tables & QR', 'tables.html', 'Manage floor seating', 'bg-sage', '⌂'],
+        ['Analytics', 'analytics.html', 'Explore performance detail', 'bg-clay', '↗'],
+      ];
+      const access = { admin: all.map((x) => x[0]), cashier: ['New order', 'Open POS', 'Reservations', 'Tables & QR', 'Menu manager', 'Analytics'], kitchen: ['Kitchen board', 'Inventory', 'Menu manager', 'New order'] };
+      return all.filter((a) => (access[role] || access.cashier).includes(a[0])).map(([label, href, hint, tone, icon]) => ({ label, href, hint, tone, icon }));
+    }
+
     function kpi(label, value, hint, tone, compact) {
       const bar = { ember: 'bg-ember', brass: 'bg-brass', sage: 'bg-sage', clay: 'bg-clay' }[tone] || 'bg-brass';
-      return `<div class="relative overflow-hidden rounded-2xl border border-line bg-parchment-light p-4 pl-5">
-        <span class="absolute inset-y-0 left-0 w-1 ${bar}"></span>
-        <div class="text-xs text-charcoal-muted">${label}</div>
-        <div class="mt-1 font-display ${compact ? 'text-[22px]' : 'text-[28px]'} font-semibold leading-none">${value}</div>
-        <div class="mt-2 text-[11px] text-charcoal-muted">${hint}</div>
-      </div>`;
+      return `<div class="relative overflow-hidden rounded-2xl border border-line bg-parchment-light p-4 pl-5"><span class="absolute inset-y-0 left-0 w-1 ${bar}"></span><div class="text-xs text-charcoal-muted">${label}</div><div class="mt-1 font-display ${compact ? 'text-[22px]' : 'text-[28px]'} font-semibold leading-none">${value}</div><div class="mt-2 text-[11px] text-charcoal-muted">${hint}</div></div>`;
     }
 
-    function dashboardBars(rows, labelKey, valueKey, color) {
-      const data = (rows || []).map((r) => ({ label: String(r[labelKey] ?? 'Unknown').replaceAll('_', ' '), value: Number(r[valueKey]) || 0 }));
-      const max = Math.max(...data.map((r) => r.value), 1);
-      return data.length ? data.map((r) => `<div class="mb-3"><div class="mb-1 flex justify-between text-xs"><span class="capitalize">${r.label}</span><strong>${r.value}</strong></div><div class="h-2.5 overflow-hidden rounded-full bg-line/60"><div class="h-full rounded-full ${color}" style="width:${Math.max(4, Math.round(r.value / max * 100))}%"></div></div></div>`).join('') : '<p class="text-sm text-charcoal-muted">No module data yet.</p>';
+    function trendChart(rows) {
+      if (!rows.length) return emptyState('No sales trend data yet.');
+      const max = Math.max(...rows.map((r) => Number(r.revenue) || 0), 1);
+      return `<div class="grid h-44 items-end gap-1.5" style="grid-template-columns:repeat(${rows.length}, minmax(0, 1fr))">${rows.map((d) => { const height = Math.max(5, Math.round((Number(d.revenue) || 0) / max * 100)); return `<div class="group relative flex h-full flex-col justify-end"><div class="rounded-t bg-gradient-to-t from-ember to-brass opacity-90 transition hover:opacity-100" style="height:${height}%" title="${RMS.money(d.revenue)} · ${d.items || 0} items"></div><span class="mt-1 text-center text-[9px] text-charcoal-muted">${String(d.day).slice(5)}</span></div>`; }).join('')}</div><div class="mt-3 flex justify-between text-[10px] text-charcoal-muted"><span>₱0</span><span>${RMS.money(max)} peak day</span></div>`;
     }
 
-    function dishCard(r) {
-      return `<article class="grid grid-cols-[72px_1fr] items-center gap-3 rounded-2xl border border-line bg-surface p-3.5 transition hover:shadow-suite">
-        ${RMS.dishImage(r, 'h-[72px] w-[72px]')}
-        <div>
-          <h4 class="font-display text-base font-semibold">${r.name}</h4>
-          <p class="text-xs text-charcoal-muted">${r.category || r.category_name || 'Featured'} · AI pick</p>
-          ${r.price != null ? `<div class="mt-1 text-sm font-bold text-ember">${RMS.money(r.price)}</div>` : ''}
-        </div>
-      </article>`;
+    function statusCards(rows) {
+      const max = Math.max(...rows.map((r) => Number(r.count) || 0), 1);
+      return rows.length ? rows.map((s) => `<div><div class="flex justify-between text-xs"><span class="capitalize">${String(s.status).replaceAll('_', ' ')}</span><strong>${s.count}</strong></div><div class="mt-1 h-2 overflow-hidden rounded-full bg-line/60"><div class="h-full rounded-full bg-ember" style="width:${Math.max(5, Number(s.count) / max * 100)}%"></div></div></div>`).join('') : emptyState('No order activity yet.');
     }
+
+    function hourChart(rows) {
+      if (!rows.length) return emptyState('No rush-hour data yet.');
+      const byHour = Object.fromEntries(rows.map((r) => [Number(r.hour), Number(r.orders) || 0]));
+      const max = Math.max(...Object.values(byHour), 1);
+      return `<div class="grid h-28 grid-cols-12 items-end gap-1">${Array.from({ length: 12 }, (_, i) => { const hour = i + 10; const value = byHour[hour] || 0; return `<div class="group flex h-full flex-col justify-end"><div class="rounded-t bg-ember/75 transition hover:bg-ember" style="height:${Math.max(value ? 7 : 2, value / max * 100)}%" title="${hour}:00 · ${value} orders"></div><span class="mt-1 text-center text-[9px] text-charcoal-muted">${hour % 12 || 12}${hour < 12 ? 'a' : 'p'}</span></div>`; }).join('')}</div>`;
+    }
+
+    function satisfactionBars(s) {
+      return [['Food', s.food_quality], ['Service', s.service], ['Cleanliness', s.cleanliness], ['Overall', s.overall]].map(([label, value]) => `<div><div class="mb-1 flex justify-between text-xs"><span>${label}</span><strong>${Number(value || 0).toFixed(1)}/5</strong></div><div class="h-2 overflow-hidden rounded-full bg-line/60"><div class="h-full rounded-full bg-brass" style="width:${Math.min(100, Number(value || 0) / 5 * 100)}%"></div></div></div>`).join('');
+    }
+
+    function metricTile(label, value, hint, tone) { return `<div class="rounded-xl border border-line bg-surface p-3"><span class="mb-2 block h-1 w-8 rounded-full ${tone}"></span><strong class="block truncate text-sm">${value}</strong><span class="text-[10px] text-charcoal-muted">${label} · ${hint}</span></div>`; }
+    function dashboardBars(rows, labelKey, valueKey, color, moneyValue) { const data = (rows || []).map((r) => ({ label: String(r[labelKey] ?? 'Unknown').replaceAll('_', ' '), value: Number(r[valueKey]) || 0 })); const max = Math.max(...data.map((r) => r.value), 1); return data.length ? data.map((r) => `<div class="mb-3"><div class="mb-1 flex justify-between text-xs"><span class="capitalize">${r.label}</span><strong>${moneyValue ? RMS.money(r.value) : r.value}</strong></div><div class="h-2.5 overflow-hidden rounded-full bg-line/60"><div class="h-full rounded-full ${color}" style="width:${Math.max(4, r.value / max * 100)}%"></div></div></div>`).join('') : emptyState('No module data yet.'); }
+    function emptyState(text, centered) { return `<p class="${centered ? 'col-span-full ' : ''}py-4 text-sm text-charcoal-muted">${text}</p>`; }
+    function dishCard(r) { return `<article class="grid grid-cols-[72px_1fr] items-center gap-3 rounded-2xl border border-line bg-surface p-3.5 transition hover:shadow-suite">${RMS.dishImage(r, 'h-[72px] w-[72px]')}<div><h4 class="font-display text-base font-semibold">${r.name}</h4><p class="text-xs text-charcoal-muted">${r.category || r.category_name || 'Featured'} · AI pick</p>${r.price != null ? `<div class="mt-1 text-sm font-bold text-ember">${RMS.money(r.price)}</div>` : ''}</div></article>`; }
   </script>
 </body>
 </html>

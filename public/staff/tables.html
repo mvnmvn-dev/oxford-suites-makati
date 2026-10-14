@@ -15,17 +15,16 @@
 
   <div id="table-modal" class="rms-modal-backdrop hidden" role="dialog" aria-modal="true">
     <div class="rms-modal">
-      <h2>Update table status</h2>
-      <p id="table-summary" class="mt-1 text-sm text-charcoal-muted"></p>
+          <h2>Set table availability</h2>
+          <p id="table-summary" class="mt-1 text-sm text-charcoal-muted"></p>
+          <p class="mt-2 rounded-lg bg-parchment-deep px-3 py-2 text-xs text-charcoal-muted">Occupied and Reserved are updated automatically from live orders and reservations.</p>
       <form id="table-form" class="mt-4 space-y-3">
         <input type="hidden" id="table-id" />
         <div>
           <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Status</label>
           <select id="table-status" class="field">
             <option value="available">Available</option>
-            <option value="occupied">Occupied</option>
-            <option value="reserved">Reserved</option>
-            <option value="cleaning">Cleaning</option>
+            <option value="cleaning">Cleaning / unavailable</option>
           </select>
         </div>
         <div class="flex justify-end gap-2 pt-2">
@@ -105,7 +104,7 @@
                 <div class="mt-2">${RMS.statusBadge(st)}</div>
                 <p class="mt-1 text-[10px] font-semibold">${RMS.money(t.current_bill || 0)}</p>
                 ${soon ? `<p class="mt-1 text-[9px] text-brass">Soon · ${soon}</p>` : ''}
-                <button type="button" class="btn-sm mt-2" data-edit="${t.id}">Status</button>
+                <button type="button" class="btn-sm mt-2" data-edit="${t.id}">Set availability</button>
               </article>`;
             }).join('')}
           </div>
@@ -215,7 +214,7 @@
           const t = tables.find((x) => String(x.id) === tile.dataset.edit);
           if (!t) return;
           document.getElementById('table-id').value = t.id;
-          document.getElementById('table-status').value = t.status;
+          document.getElementById('table-status').value = t.display_status === 'reserved_soon' ? 'reserved' : (t.display_status || t.status);
           document.getElementById('table-summary').innerHTML =
             `<strong>${t.table_number}</strong> · ${t.zone} · ${t.capacity} seats` +
             `<div class="mt-2 grid grid-cols-2 gap-2 text-xs">` +

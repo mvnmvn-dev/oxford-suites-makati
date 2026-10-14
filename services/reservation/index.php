@@ -187,12 +187,12 @@ class ReservationService
             $pdo->beginTransaction();
             try {
                 $pdo->prepare('UPDATE reservations SET table_id = ? WHERE id = ?')->execute([$tableId, $reservationId]);
-                if ($tableId) {
+                if ($tableId && $reservation['reservation_date'] === date('Y-m-d')) {
                     $tableStatus = $reservation['status'] === 'seated' ? 'occupied' : 'reserved';
                     $pdo->prepare("UPDATE dining_tables SET status = ? WHERE id = ? AND status <> 'cleaning'")
                         ->execute([$tableStatus, $tableId]);
                 }
-                if ($oldTableId && $oldTableId !== $tableId) {
+                if ($oldTableId && $oldTableId !== $tableId && $reservation['reservation_date'] === date('Y-m-d')) {
                     $remaining = $pdo->prepare(
                         "SELECT COUNT(*) FROM reservations WHERE table_id = ? AND id <> ? AND status IN ('pending','confirmed','seated')"
                     );
@@ -320,7 +320,7 @@ class ReservationService
                 $seatingPref,
             ]);
             $id = (int)$pdo->lastInsertId();
-            if ($tableId && in_array($status, ['pending', 'confirmed'], true)) {
+            if ($tableId && $reservationDate === date('Y-m-d') && in_array($status, ['pending', 'confirmed'], true)) {
                 $pdo->prepare("UPDATE dining_tables SET status='reserved' WHERE id=? AND status='available'")->execute([$tableId]);
             }
             $pdo->prepare('INSERT INTO notifications (role_target, title, body, type) VALUES (?,?,?,?)')
@@ -372,21 +372,23 @@ class ReservationService
                 $pdo->prepare('UPDATE reservations SET status = ? WHERE id = ?')->execute([$status, $id]);
             }
             $tableId = !empty($row['table_id']) ? (int)$row['table_id'] : null;
-            if ($status === 'confirmed' && $tableId) {
+            if ($status === 'confirmed' && $tableId && $row['reservation_date'] === date('Y-m-d')) {
                 $pdo->prepare("UPDATE dining_tables SET status='reserved' WHERE id=? AND status IN ('available','reserved')")->execute([$tableId]);
             }
-            if ($status === 'seated' && $tableId) {
+            if ($status === 'seated' && $tableId && $row['reservation_date'] === date('Y-m-d')) {
                 $pdo->prepare("UPDATE dining_tables SET status='occupied' WHERE id=?")->execute([$tableId]);
             }
-            if (in_array($status, ['cancelled', 'completed', 'no_show'], true) && $tableId) {
+            if (in_array($status, ['cancelled', 'completed', 'no_show'], true) && $tableId && $row['reservation_date'] === date('Y-m-d')) {
                 $openOrders = $pdo->prepare(
                     "SELECT COUNT(*) FROM orders WHERE table_id = ? AND status NOT IN ('paid','cancelled')"
                 );
                 $openOrders->execute([$tableId]);
-                $otherRes = $pdo->prepare(
-                    "SELECT COUNT(*) FROM reservations WHERE table_id = ? AND id <> ? AND status IN ('pending','confirmed','seated')"
-                );
-                $otherRes->execute([$tableId, $id]);
+                    $otherRes = $pdo->prepare(
+                        "SELECT COUNT(*) FROM reservations
+                         WHERE table_id = ? AND id <> ? AND reservation_date = CURDATE()
+                           AND status IN ('pending','confirmed','seated')"
+                    );
+                    $otherRes->execute([$tableId, $id]);
                 if ((int)$openOrders->fetchColumn() === 0 && (int)$otherRes->fetchColumn() === 0) {
                     $pdo->prepare("UPDATE dining_tables SET status='available' WHERE id=? AND status IN ('reserved','occupied','cleaning')")
                         ->execute([$tableId]);

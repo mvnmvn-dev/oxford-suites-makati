@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Dashboard — Oxford Suites RMS</title>
+  <title>Dashboard â€” Oxford Suites RMS</title>
   <link rel="icon" href="../favicon.ico?v=2" type="image/x-icon" />
   <link rel="shortcut icon" href="../favicon.ico?v=2" type="image/x-icon" />
   <script src="../assets/js/theme-boot.js"></script>
@@ -31,20 +31,10 @@
           <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
             <div>
               <p class="text-xs font-semibold uppercase tracking-[0.14em] text-ember">Operations snapshot</p>
-              <p class="mt-1 text-sm text-charcoal-muted">Live metrics from the current RMS workspace · refreshed ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+              <p class="mt-1 text-sm text-charcoal-muted">Live metrics from the current RMS workspace Â· refreshed ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
             </div>
             <button id="dashboard-refresh" type="button" class="btn-sm">Refresh data</button>
-          </div>
-
-          <section aria-label="Quick actions" class="mb-5 rounded-2xl border border-line bg-gradient-to-br from-charcoal to-[#3A2925] p-5 text-white shadow-suite">
-            <div class="flex flex-wrap items-end justify-between gap-3">
-              <div><p class="text-[10px] font-bold uppercase tracking-[0.16em] text-brass-soft">Quick navigation</p><h3 class="mt-1 font-display text-xl font-semibold">Move the floor forward</h3></div>
-              <span class="text-xs text-white/60">${String(user?.role || 'staff').replace(/^./, (c) => c.toUpperCase())} workspace</span>
-            </div>
-            <div class="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">${actions.map((a) => `<a href="${a.href}" class="group flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-3 transition hover:-translate-y-0.5 hover:bg-white/10"><span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg ${a.tone}">${a.icon}</span><span><strong class="block text-sm">${a.label}</strong><small class="text-[11px] text-white/60">${a.hint}</small></span><span class="ml-auto text-white/40 transition group-hover:translate-x-1">→</span></a>`).join('')}</div>
-          </section>
-
-          <section class="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Key performance indicators">
+          </div><section class="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Key performance indicators">
             ${kpi('Orders today', k.orders_today, 'QR + POS activity', 'ember')}
             ${kpi('Revenue today', RMS.money(k.revenue_today), 'Open and completed tickets', 'brass', true)}
             ${kpi('Occupied tables', k.occupied_tables, `${k.reservations_today || 0} reservations today`, 'sage')}
@@ -55,13 +45,24 @@
             ${kpi('Waste cost', RMS.money(k.waste_cost_30d), 'Last 30 days', 'ember', true)}
           </section>
 
+
+
+          <section aria-label="Quick actions" class="mb-5 rounded-2xl border border-[#4A332D] bg-[#241E1C] p-3.5 text-white shadow-suite" style="background:linear-gradient(135deg,#241E1C,#4A2D27)">
+            <div class="flex flex-wrap items-end justify-between gap-3">
+              <div><p class="text-[10px] font-bold uppercase tracking-[0.16em] text-brass-soft">Quick navigation</p><h3 class="mt-1 font-display text-base font-semibold">Move the floor forward</h3></div>
+              <span class="text-xs text-white/60">${String(user?.role || 'staff').replace(/^./, (c) => c.toUpperCase())} workspace</span>
+            </div>
+            <div class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">${actions.map((a) => `<a href="${a.href}" class="group flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-2.5 py-2 transition hover:bg-white/10"><span class="grid h-7 w-7 shrink-0 place-items-center rounded-md text-xs ${a.tone}">${a.icon}</span><span><strong class="block text-xs">${a.label}</strong><small class="hidden text-[10px] text-white/60 sm:block">${a.hint}</small></span><span class="ml-auto text-white/40 transition group-hover:translate-x-1">â†’</span></a>`).join('')}</div>
+          </section>
+
+
           <section class="grid gap-4 xl:grid-cols-[1.5fr_1fr]">
             <article class="rounded-2xl border border-line bg-parchment-light p-5">
               <div class="flex items-start justify-between gap-3"><div><h3 class="font-display text-lg font-semibold">Revenue & item trend</h3><p class="mt-1 text-xs text-charcoal-muted">Daily sales performance over the last 14 days</p></div><span class="rounded-full bg-brass/20 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-brass-deep">${k.scope || 'user-based'}</span></div>
               <div class="mt-5">${trendChart(data.sales_trend || [])}</div>
             </article>
             <article class="rounded-2xl border border-line bg-parchment-light p-5">
-              <h3 class="font-display text-lg font-semibold">Order status mix</h3><p class="mt-1 text-xs text-charcoal-muted">Where today’s tickets are in the service flow</p>
+              <h3 class="font-display text-lg font-semibold">Order status mix</h3><p class="mt-1 text-xs text-charcoal-muted">Where todayâ€™s tickets are in the service flow</p>
               <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">${statusCards(data.order_status || [])}</div>
             </article>
           </section>
@@ -74,16 +75,16 @@
 
           <section class="mt-4 grid gap-4 lg:grid-cols-2">
             <article class="rounded-2xl border border-line bg-parchment-light p-5"><div class="flex items-start justify-between"><div><h3 class="font-display text-lg font-semibold">Signature movers</h3><p class="mt-1 text-xs text-charcoal-muted">Top-selling dishes over the last 30 days</p></div><a href="analytics.html" class="btn-sm">Full analytics</a></div><div class="mt-3 divide-y divide-line/70">${(data.top_items || []).slice(0, 6).map((i, index) => `<div class="flex items-center gap-3 py-2.5 text-sm"><span class="grid h-6 w-6 place-items-center rounded-full bg-ember/10 text-[10px] font-bold text-ember">${index + 1}</span><span class="min-w-0 flex-1 truncate font-medium">${i.name}</span><span class="text-right text-xs text-charcoal-muted"><strong class="block text-charcoal">${i.sold} sold</strong>${RMS.money(i.revenue)}</span></div>`).join('') || emptyState('No sales data yet.')}</div></article>
-            <article class="rounded-2xl border border-line bg-parchment-light p-5"><h3 class="font-display text-lg font-semibold">7-day demand forecast</h3><p class="mt-1 text-xs text-charcoal-muted">Dishes with the strongest projected demand</p><div class="mt-3 space-y-2">${(data.demand_forecast || []).slice(0, 6).map((f) => `<div class="flex items-center gap-3 rounded-xl border border-line bg-surface px-3 py-2.5"><span class="grid h-8 w-8 place-items-center rounded-lg bg-sage/15 text-sage-deep">↗</span><span class="min-w-0 flex-1 truncate text-sm font-medium">${f.name}</span><span class="text-right text-xs"><strong class="block text-charcoal">${f.next_7_days || 0}</strong><span class="text-charcoal-muted">projected units</span></span></div>`).join('') || emptyState('Forecast data will appear after sales are recorded.')}</div></article>
+            <article class="rounded-2xl border border-line bg-parchment-light p-5"><h3 class="font-display text-lg font-semibold">7-day demand forecast</h3><p class="mt-1 text-xs text-charcoal-muted">Dishes with the strongest projected demand</p><div class="mt-3 space-y-2">${(data.demand_forecast || []).slice(0, 6).map((f) => `<div class="flex items-center gap-3 rounded-xl border border-line bg-surface px-3 py-2.5"><span class="grid h-8 w-8 place-items-center rounded-lg bg-sage/15 text-sage-deep">â†—</span><span class="min-w-0 flex-1 truncate text-sm font-medium">${f.name}</span><span class="text-right text-xs"><strong class="block text-charcoal">${f.next_7_days || 0}</strong><span class="text-charcoal-muted">projected units</span></span></div>`).join('') || emptyState('Forecast data will appear after sales are recorded.')}</div></article>
           </section>
 
           <section class="mt-4 grid gap-4 lg:grid-cols-3">
             <article class="rounded-2xl border border-line bg-parchment-light p-5"><h3 class="font-display text-lg font-semibold">Reservations pulse</h3><p class="mt-1 text-xs text-charcoal-muted">Reservation status in the last 30 days</p><div class="mt-4">${dashboardBars(overview.reservations_by_status, 'status', 'count', 'bg-brass')}</div></article>
             <article class="rounded-2xl border border-line bg-parchment-light p-5"><h3 class="font-display text-lg font-semibold">Payment mix</h3><p class="mt-1 text-xs text-charcoal-muted">Completed payments by method</p><div class="mt-4">${dashboardBars(overview.payments_by_method, 'method', 'amount', 'bg-sage', true)}</div></article>
-            <article class="rounded-2xl border border-line bg-parchment-light p-5"><h3 class="font-display text-lg font-semibold">Actionable insights</h3><div class="mt-3 space-y-2">${(data.insights || []).slice(0, 5).map((i) => `<div class="rounded-xl border border-line bg-surface p-3 text-xs leading-relaxed"><span class="mr-1 font-semibold text-ember">•</span>${i}</div>`).join('') || emptyState('Insights will appear as activity is recorded.')}</div></article>
+            <article class="rounded-2xl border border-line bg-parchment-light p-5"><h3 class="font-display text-lg font-semibold">Actionable insights</h3><div class="mt-3 space-y-2">${(data.insights || []).slice(0, 5).map((i) => `<div class="rounded-xl border border-line bg-surface p-3 text-xs leading-relaxed"><span class="mr-1 font-semibold text-ember">â€¢</span>${i}</div>`).join('') || emptyState('Insights will appear as activity is recorded.')}</div></article>
           </section>
 
-          <section class="mt-4 rounded-2xl border border-line bg-parchment-light p-5"><div class="flex items-start justify-between gap-3"><div><h3 class="font-display text-lg font-semibold">Chef’s recommendations</h3><p class="mt-1 text-xs text-charcoal-muted">Collaborative filtering from recent guest behavior</p></div><a href="menu.html" class="btn-sm">Open menu</a></div><div id="recs" class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"></div></section>`;
+          <section class="mt-4 rounded-2xl border border-line bg-parchment-light p-5"><div class="flex items-start justify-between gap-3"><div><h3 class="font-display text-lg font-semibold">Chefâ€™s recommendations</h3><p class="mt-1 text-xs text-charcoal-muted">Collaborative filtering from recent guest behavior</p></div><a href="menu.html" class="btn-sm">Open menu</a></div><div id="recs" class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"></div></section>`;
 
         document.getElementById('dashboard-refresh')?.addEventListener('click', () => location.reload());
         try {
@@ -92,21 +93,21 @@
           const recs = (ml.data.recommendations || []).map((r) => ({ ...r, ...(byId[String(r.id)] || {}) }));
           document.getElementById('recs').innerHTML = recs.map((r) => dishCard(r)).join('') || emptyState('No recommendations yet.', true);
         } catch (_) {
-          document.getElementById('recs').innerHTML = emptyState('ML offline — operational dashboard remains available.', true);
+          document.getElementById('recs').innerHTML = emptyState('ML offline â€” operational dashboard remains available.', true);
         }
       },
     });
 
     function quickActions(role) {
       const all = [
-        ['New order', 'orders.html', 'Review and route tickets', 'bg-ember', '＋'],
-        ['Open POS', 'pos.html', 'Start counter billing', 'bg-brass', '₱'],
-        ['Kitchen board', 'kitchen.html', 'Manage active tickets', 'bg-clay', '⌁'],
-        ['Inventory', 'inventory.html', 'Restock and log waste', 'bg-sage', '▦'],
-        ['Menu manager', 'menu.html', 'Update dishes and recipes', 'bg-ember', '≋'],
-        ['Reservations', 'reservations.html', 'View today’s bookings', 'bg-brass', '□'],
-        ['Tables & QR', 'tables.html', 'Manage floor seating', 'bg-sage', '⌂'],
-        ['Analytics', 'analytics.html', 'Explore performance detail', 'bg-clay', '↗'],
+        ['New order', 'orders.html', 'Review and route tickets', 'bg-ember', 'ï¼‹'],
+        ['Open POS', 'pos.html', 'Start counter billing', 'bg-brass', 'â‚±'],
+        ['Kitchen board', 'kitchen.html', 'Manage active tickets', 'bg-clay', 'âŒ'],
+        ['Inventory', 'inventory.html', 'Restock and log waste', 'bg-sage', 'â–¦'],
+        ['Menu manager', 'menu.html', 'Update dishes and recipes', 'bg-ember', 'â‰‹'],
+        ['Reservations', 'reservations.html', 'View todayâ€™s bookings', 'bg-brass', 'â–¡'],
+        ['Tables & QR', 'tables.html', 'Manage floor seating', 'bg-sage', 'âŒ‚'],
+        ['Analytics', 'analytics.html', 'Explore performance detail', 'bg-clay', 'â†—'],
       ];
       const access = { admin: all.map((x) => x[0]), cashier: ['New order', 'Open POS', 'Reservations', 'Tables & QR', 'Menu manager', 'Analytics'], kitchen: ['Kitchen board', 'Inventory', 'Menu manager', 'New order'] };
       return all.filter((a) => (access[role] || access.cashier).includes(a[0])).map(([label, href, hint, tone, icon]) => ({ label, href, hint, tone, icon }));
@@ -120,7 +121,7 @@
     function trendChart(rows) {
       if (!rows.length) return emptyState('No sales trend data yet.');
       const max = Math.max(...rows.map((r) => Number(r.revenue) || 0), 1);
-      return `<div class="grid h-44 items-end gap-1.5" style="grid-template-columns:repeat(${rows.length}, minmax(0, 1fr))">${rows.map((d) => { const height = Math.max(5, Math.round((Number(d.revenue) || 0) / max * 100)); return `<div class="group relative flex h-full flex-col justify-end"><div class="rounded-t bg-gradient-to-t from-ember to-brass opacity-90 transition hover:opacity-100" style="height:${height}%" title="${RMS.money(d.revenue)} · ${d.items || 0} items"></div><span class="mt-1 text-center text-[9px] text-charcoal-muted">${String(d.day).slice(5)}</span></div>`; }).join('')}</div><div class="mt-3 flex justify-between text-[10px] text-charcoal-muted"><span>₱0</span><span>${RMS.money(max)} peak day</span></div>`;
+      return `<div class="grid h-44 items-end gap-1.5" style="grid-template-columns:repeat(${rows.length}, minmax(0, 1fr))">${rows.map((d) => { const height = Math.max(5, Math.round((Number(d.revenue) || 0) / max * 100)); return `<div class="group relative flex h-full flex-col justify-end"><div class="rounded-t bg-gradient-to-t from-ember to-brass opacity-90 transition hover:opacity-100" style="height:${height}%" title="${RMS.money(d.revenue)} Â· ${d.items || 0} items"></div><span class="mt-1 text-center text-[9px] text-charcoal-muted">${String(d.day).slice(5)}</span></div>`; }).join('')}</div><div class="mt-3 flex justify-between text-[10px] text-charcoal-muted"><span>â‚±0</span><span>${RMS.money(max)} peak day</span></div>`;
     }
 
     function statusCards(rows) {
@@ -132,17 +133,17 @@
       if (!rows.length) return emptyState('No rush-hour data yet.');
       const byHour = Object.fromEntries(rows.map((r) => [Number(r.hour), Number(r.orders) || 0]));
       const max = Math.max(...Object.values(byHour), 1);
-      return `<div class="grid h-28 grid-cols-12 items-end gap-1">${Array.from({ length: 12 }, (_, i) => { const hour = i + 10; const value = byHour[hour] || 0; return `<div class="group flex h-full flex-col justify-end"><div class="rounded-t bg-ember/75 transition hover:bg-ember" style="height:${Math.max(value ? 7 : 2, value / max * 100)}%" title="${hour}:00 · ${value} orders"></div><span class="mt-1 text-center text-[9px] text-charcoal-muted">${hour % 12 || 12}${hour < 12 ? 'a' : 'p'}</span></div>`; }).join('')}</div>`;
+      return `<div class="grid h-28 grid-cols-12 items-end gap-1">${Array.from({ length: 12 }, (_, i) => { const hour = i + 10; const value = byHour[hour] || 0; return `<div class="group flex h-full flex-col justify-end"><div class="rounded-t bg-ember/75 transition hover:bg-ember" style="height:${Math.max(value ? 7 : 2, value / max * 100)}%" title="${hour}:00 Â· ${value} orders"></div><span class="mt-1 text-center text-[9px] text-charcoal-muted">${hour % 12 || 12}${hour < 12 ? 'a' : 'p'}</span></div>`; }).join('')}</div>`;
     }
 
     function satisfactionBars(s) {
       return [['Food', s.food_quality], ['Service', s.service], ['Cleanliness', s.cleanliness], ['Overall', s.overall]].map(([label, value]) => `<div><div class="mb-1 flex justify-between text-xs"><span>${label}</span><strong>${Number(value || 0).toFixed(1)}/5</strong></div><div class="h-2 overflow-hidden rounded-full bg-line/60"><div class="h-full rounded-full bg-brass" style="width:${Math.min(100, Number(value || 0) / 5 * 100)}%"></div></div></div>`).join('');
     }
 
-    function metricTile(label, value, hint, tone) { return `<div class="rounded-xl border border-line bg-surface p-3"><span class="mb-2 block h-1 w-8 rounded-full ${tone}"></span><strong class="block truncate text-sm">${value}</strong><span class="text-[10px] text-charcoal-muted">${label} · ${hint}</span></div>`; }
+    function metricTile(label, value, hint, tone) { return `<div class="rounded-xl border border-line bg-surface p-3"><span class="mb-2 block h-1 w-8 rounded-full ${tone}"></span><strong class="block truncate text-sm">${value}</strong><span class="text-[10px] text-charcoal-muted">${label} Â· ${hint}</span></div>`; }
     function dashboardBars(rows, labelKey, valueKey, color, moneyValue) { const data = (rows || []).map((r) => ({ label: String(r[labelKey] ?? 'Unknown').replaceAll('_', ' '), value: Number(r[valueKey]) || 0 })); const max = Math.max(...data.map((r) => r.value), 1); return data.length ? data.map((r) => `<div class="mb-3"><div class="mb-1 flex justify-between text-xs"><span class="capitalize">${r.label}</span><strong>${moneyValue ? RMS.money(r.value) : r.value}</strong></div><div class="h-2.5 overflow-hidden rounded-full bg-line/60"><div class="h-full rounded-full ${color}" style="width:${Math.max(4, r.value / max * 100)}%"></div></div></div>`).join('') : emptyState('No module data yet.'); }
     function emptyState(text, centered) { return `<p class="${centered ? 'col-span-full ' : ''}py-4 text-sm text-charcoal-muted">${text}</p>`; }
-    function dishCard(r) { return `<article class="grid grid-cols-[72px_1fr] items-center gap-3 rounded-2xl border border-line bg-surface p-3.5 transition hover:shadow-suite">${RMS.dishImage(r, 'h-[72px] w-[72px]')}<div><h4 class="font-display text-base font-semibold">${r.name}</h4><p class="text-xs text-charcoal-muted">${r.category || r.category_name || 'Featured'} · AI pick</p>${r.price != null ? `<div class="mt-1 text-sm font-bold text-ember">${RMS.money(r.price)}</div>` : ''}</div></article>`; }
+    function dishCard(r) { return `<article class="grid grid-cols-[72px_1fr] items-center gap-3 rounded-2xl border border-line bg-surface p-3.5 transition hover:shadow-suite">${RMS.dishImage(r, 'h-[72px] w-[72px]')}<div><h4 class="font-display text-base font-semibold">${r.name}</h4><p class="text-xs text-charcoal-muted">${r.category || r.category_name || 'Featured'} Â· AI pick</p>${r.price != null ? `<div class="mt-1 text-sm font-bold text-ember">${RMS.money(r.price)}</div>` : ''}</div></article>`; }
   </script>
 </body>
 </html>

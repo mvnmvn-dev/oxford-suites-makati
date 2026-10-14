@@ -27,32 +27,45 @@ class TableService
                         COALESCE((SELECT COUNT(*) FROM orders o WHERE o.table_id = dt.id AND o.status NOT IN ('paid','cancelled')), 0) AS open_orders,
                         COALESCE((SELECT SUM(o.total) FROM orders o WHERE o.table_id = dt.id AND o.status NOT IN ('paid','cancelled')), 0) AS current_bill,
                         (SELECT MAX(o.created_at) FROM orders o WHERE o.table_id = dt.id AND o.status NOT IN ('paid','cancelled')) AS seated_at,
-                        (SELECT MAX(o.customer_name) FROM orders o WHERE o.table_id = dt.id AND o.status NOT IN ('paid','cancelled')) AS guest_name
+                        (SELECT MAX(o.customer_name) FROM orders o WHERE o.table_id = dt.id AND o.status NOT IN ('paid','cancelled')) AS guest_name,
+                        (SELECT r.status FROM reservations r
+                         WHERE r.table_id = dt.id AND r.reservation_date = CURDATE()
+                           AND r.status IN ('pending','confirmed','seated')
+                         ORDER BY CASE r.status WHEN 'seated' THEN 1 ELSE 2 END,
+                                  ABS(TIME_TO_SEC(TIMEDIFF(r.reservation_time, CURTIME()))) ASC, r.id DESC LIMIT 1) AS today_reservation_status,
+                        (SELECT r.reservation_time FROM reservations r
+                         WHERE r.table_id = dt.id AND r.reservation_date = CURDATE()
+                           AND r.status IN ('pending','confirmed','seated')
+                         ORDER BY CASE r.status WHEN 'seated' THEN 1 ELSE 2 END,
+                                  ABS(TIME_TO_SEC(TIMEDIFF(r.reservation_time, CURTIME()))) ASC, r.id DESC LIMIT 1) AS today_reservation_time,
+                        (SELECT r.customer_name FROM reservations r
+                         WHERE r.table_id = dt.id AND r.reservation_date = CURDATE()
+                           AND r.status IN ('pending','confirmed','seated')
+                         ORDER BY CASE r.status WHEN 'seated' THEN 1 ELSE 2 END,
+                                  ABS(TIME_TO_SEC(TIMEDIFF(r.reservation_time, CURTIME()))) ASC, r.id DESC LIMIT 1) AS today_reservation_guest
                  FROM dining_tables dt ORDER BY dt.table_number"
             )->fetchAll();
             foreach ($rows as &$r) {
                 $r['qr_url'] = $base . '/public/customer/menu.html?token=' . urlencode($r['qr_token']);
-                $r['display_status'] = $r['status'];
-                // Reserved within next 2 hours → "reserved_soon" for floor UI
-                if ($r['status'] === 'available' || $r['status'] === 'reserved') {
-                    $soon = $pdo->prepare(
-                        "SELECT reservation_time, customer_name,
-                                reservation_time <= ? AS is_current
-                         FROM reservations
-                         WHERE table_id = ? AND reservation_date = ?
-                           AND status IN ('pending','confirmed')
-                           AND reservation_time BETWEEN SUBTIME(?, '02:00:00') AND ADDTIME(?, '02:00:00')
-                         ORDER BY ABS(TIME_TO_SEC(TIMEDIFF(reservation_time, ?))) ASC
-                         LIMIT 1"
-                    );
-                    $soon->execute([$now, (int)$r['id'], $today, $now, $now, $now]);
-                    $next = $soon->fetch();
-                    if ($next) {
-                        $r['display_status'] = 'reserved_soon';
-                        $r['next_reservation'] = (!empty($next['is_current']) ? 'Current · ' : 'Soon · ')
-                            . substr((string)$next['reservation_time'], 0, 5)
-                            . (!empty($next['customer_name']) ? ' · ' . $next['customer_name'] : '');
-                    }
+                $r['reservation_status'] = $r['today_reservation_status'] ?: null;
+                $r['reservation_time'] = $r['today_reservation_time'] ?: null;
+                $r['reservation_guest'] = $r['today_reservation_guest'] ?: null;
+
+                // Effective floor status is derived from live activity first; the stored
+                // status is only retained for cleaning, which is a manual operational state.
+                if ($r['status'] === 'cleaning') {
+                    $r['display_status'] = 'cleaning';
+                } elseif (($r['open_orders'] ?? 0) > 0 || $r['reservation_status'] === 'seated') {
+                    $r['display_status'] = 'occupied';
+                } elseif (in_array($r['reservation_status'], ['pending', 'confirmed'], true)) {
+                    $reservationTime = (string)($r['reservation_time'] ?? '');
+                    $soonCutoff = date('H:i:s', strtotime('+2 hours'));
+                    $r['display_status'] = ($reservationTime <= $soonCutoff) ? 'reserved_soon' : 'reserved';
+                    $r['next_reservation'] = (($reservationTime <= $now) ? 'Current · ' : 'Today · ')
+                        . substr($reservationTime, 0, 5)
+                        . (!empty($r['reservation_guest']) ? ' · ' . $r['reservation_guest'] : '');
+                } else {
+                    $r['display_status'] = 'available';
                 }
             }
             Response::success($rows);
@@ -107,7 +120,9 @@ class TableService
             Auth::requireLogin(['admin', 'cashier']);
             $b = $this->body();
             $status = $b['status'] ?? '';
-            $allowed = ['available', 'occupied', 'reserved', 'cleaning'];
+            // Occupied and reserved are system-derived from live orders and reservations.
+            // Staff may only apply the two manual operational overrides.
+            $allowed = ['available', 'cleaning'];
             if (!in_array($status, $allowed, true)) {
                 Response::error('Invalid table status');
             }
@@ -177,7 +192,8 @@ class TableService
 
                 $pdo->prepare('UPDATE reservations SET table_id = ? WHERE id = ? AND table_id IS NULL')
                     ->execute([(int)$table['id'], (int)$reservation['id']]);
-                if (in_array($reservation['status'] ?? 'pending', ['pending', 'confirmed'], true)) {
+                if ($reservation['reservation_date'] === date('Y-m-d')
+                    && in_array($reservation['status'] ?? 'pending', ['pending', 'confirmed'], true)) {
                     $pdo->prepare("UPDATE dining_tables SET status='reserved' WHERE id=? AND status='available'")
                         ->execute([(int)$table['id']]);
                 }

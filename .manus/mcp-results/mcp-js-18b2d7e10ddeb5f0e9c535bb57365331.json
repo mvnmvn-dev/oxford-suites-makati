@@ -1,0 +1,6 @@
+In-app Browser JS state was preserved. Completed actions were not rolled back; refresh stale UI handles and continue only the remaining work.
+{"code":"NAVIGATION_FAILED","method":"browser_open_tab","callIndex":1,"nextAction":"inspect_before_retry"}
+ERROR NAVIGATION_FAILED
+{"control":{"documentRevision":"rev_9af588dd-5026-488d-a615-8724c1ca9d9a","error":{"code":"NAVIGATION_FAILED","retryable":false},"requiresSnapshot":false,"status":"error","tabId":"tab_6767ea76-f713-49db-b76f-7e03a35f2b86"},"kind":"error","page":{"contentTrust":"untrusted","url":"http://localhost/oxford-rms/public/staff/pos.html"},"schema":"manus.browser/v1","warnings":["ERR_CONNECTION_REFUSED (-102)"]}
+ERROR NAVIGATION_FAILED
+{"control":{"documentRevision":"rev_9af588dd-5026-488d-a615-8724c1ca9d9a","error":{"code":"NAVIGATION_FAILED","retryable":false},"requiresSnapshot":false,"status":"error","tabId":"tab_6767ea76-f713-49db-b76f-7e03a35f2b86"},"kind":"error","page":{"contentTrust":"untrusted","url":"http://localhost/oxford-rms/public/staff/pos.html"},"schema":"manus.browser/v1","warnings":["ERR_CONNECTION_REFUSED (-102)"]}

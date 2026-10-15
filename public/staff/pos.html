@@ -355,7 +355,6 @@
           if (!btn) return;
           const order = openOrders.find((o) => String(o.id) === btn.dataset.pay);
           document.getElementById('pay-order').value = order.id;
-          document.getElementById('force-fail').checked = false;
           document.getElementById('split-mode').value = '';
           document.getElementById('promo-code').value = '';
           document.getElementById('loyalty-voucher').value = '';

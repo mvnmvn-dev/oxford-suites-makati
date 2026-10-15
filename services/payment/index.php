@@ -39,8 +39,12 @@ class PaymentService
         }
 
         if ($method === 'GET' && preg_match('/^bill\/(\d+)$/', $sub, $m)) {
-            Auth::requireLogin(['admin', 'cashier']);
-            Response::success($this->bill($pdo, (int)$m[1]));
+            $viewer = Auth::requireLogin(['admin', 'cashier', 'customer']);
+            $bill = $this->bill($pdo, (int)$m[1]);
+            if (($viewer['role'] ?? '') === 'customer' && (int)($bill['customer_id'] ?? 0) !== (int)$viewer['id']) {
+                Response::error('Bill not found', 404);
+            }
+            Response::success($bill);
         }
 
         if ($method === 'GET' && $sub === '') {
@@ -73,7 +77,7 @@ class PaymentService
         }
 
         if ($method === 'POST' && $sub === '') {
-            $user = Auth::requireLogin(['admin', 'cashier']);
+            $user = Auth::requireLogin(['admin', 'cashier', 'customer']);
             if (!$breaker->allowRequest()) {
                 Response::error('Payment service temporarily unavailable (circuit open). Try cash settlement later.', 503, ['circuit' => $breaker->status()]);
             }
@@ -97,6 +101,18 @@ class PaymentService
                 $order = $orderStmt->fetch();
                 if (!$order) {
                     throw new RuntimeException('Order not found');
+                }
+                if (($user['role'] ?? '') === 'customer') {
+                    if ((int)($order['customer_id'] ?? 0) !== (int)$user['id']) {
+                        throw new RuntimeException('Order not found');
+                    }
+                    if (!empty($b['split_mode']) || !empty($b['splits'])) {
+                        throw new RuntimeException('Customer checkout accepts one digital payment at a time');
+                    }
+                    $customerMethod = $this->normalizeMethod((string)($b['method'] ?? ''));
+                    if (!in_array($customerMethod, ['card', 'gcash', 'maya'], true)) {
+                        throw new RuntimeException('Customer checkout supports card, GCash, or Maya');
+                    }
                 }
                 if ($order['status'] === 'paid') {
                     throw new RuntimeException('Order is already paid');
@@ -164,7 +180,8 @@ class PaymentService
                 foreach ($valid as [$payMethod, $amount, $reference, $label, $gatewayRef]) {
                     $receipt = 'RCP-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6));
                     $stmt = $pdo->prepare('INSERT INTO payments (order_id, amount, method, status, reference_no, gateway_ref, cashier_id, receipt_no) VALUES (?, ?, ?, "completed", ?, ?, ?, ?)');
-                    $stmt->execute([$orderId, $amount, $payMethod, $reference, $gatewayRef, $user['id'] ?? null, $receipt]);
+                    $cashierId = ($user['role'] ?? '') === 'customer' ? null : ($user['id'] ?? null);
+                    $stmt->execute([$orderId, $amount, $payMethod, $reference, $gatewayRef, $cashierId, $receipt]);
                     $paymentId = (int)$pdo->lastInsertId();
                     $pdo->prepare('INSERT INTO bill_splits (order_id, split_label, amount, method, payment_id) VALUES (?,?,?,?,?)')
                         ->execute([$orderId, $label, $amount, $payMethod, $paymentId]);

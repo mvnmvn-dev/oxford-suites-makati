@@ -57,7 +57,9 @@
         <div id="ewallet-fields" class="hidden space-y-2 rounded-xl border border-line bg-parchment/50 p-3">
           <label class="mb-1 block text-xs font-semibold text-charcoal-muted">GCash / Maya reference number</label>
           <input id="pay-reference" class="field" placeholder="e.g. 1234567890" autocomplete="off" />
-          <p class="text-[11px] text-charcoal-muted">Ask the guest to pay via the e-wallet, then enter the confirmation / reference number.</p>
+          <p class="text-[11px] text-charcoal-muted">Open the hosted wallet screen to authorize a realistic simulated transaction.</p>
+          <button type="button" id="btn-ewallet-checkout" class="btn-secondary w-full">Open hosted wallet checkout</button>
+          <p id="ewallet-status" class="hidden text-[11px] font-semibold text-sage-deep"></p>
         </div>
         <div id="cash-fields" class="space-y-2 rounded-xl border border-line bg-parchment/50 p-3">
           <div class="grid grid-cols-2 gap-2">
@@ -75,9 +77,9 @@
         <div id="card-terminal" class="hidden space-y-3 rounded-xl border border-line bg-[#1C1412] p-4 text-white">
           <p class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#E2C48A]">Card terminal</p>
           <p id="terminal-amount" class="font-display text-3xl font-semibold tabular-nums">₱0.00</p>
-            <p id="terminal-status" class="text-sm text-white/70">Ready for tap / insert / swipe…</p>
+            <p id="terminal-status" class="text-sm text-white/70">Ready to open the hosted terminal…</p>
           <div class="flex gap-2">
-            <button type="button" id="btn-terminal-tap" class="btn-primary flex-1">Confirm terminal approval</button>
+            <button type="button" id="btn-card-checkout" class="btn-primary flex-1">Open hosted terminal</button>
             <button type="button" id="btn-terminal-reset" class="btn-secondary !border-white/30 !text-white">Reset</button>
           </div>
           <input type="hidden" id="terminal-confirmed" value="0" />
@@ -187,7 +189,7 @@
       if (cash) updateCashChange();
       if (!card) {
         document.getElementById('terminal-confirmed').value = '0';
-        document.getElementById('terminal-status').textContent = 'Ready for tap / insert / swipe…';
+        document.getElementById('terminal-status').textContent = 'Ready to open the hosted terminal…';
       }
     }
 
@@ -204,6 +206,32 @@
       const type = document.getElementById('discount-type').value;
       document.getElementById('discount-id-wrap').classList.toggle('hidden', !['senior', 'pwd'].includes(type));
     }
+
+    function launchHostedPayment(method) {
+      const orderId = Number(document.getElementById('pay-order').value);
+      const summary = document.getElementById('pay-summary').textContent.match(/Remaining ₱([\d,]+\.\d{2})/);
+      const amount = summary ? Number(summary[1].replace(/,/g, '')) : 0;
+      if (!orderId || amount <= 0) return RMS.toast('Open a valid bill before starting checkout', 'error');
+      const params = new URLSearchParams({ method, amount: amount.toFixed(2), order: String(orderId) });
+      const checkout = window.open('payment-sandbox.html?' + params.toString(), 'oxfordHostedPayment', 'width=480,height=760,resizable=yes,scrollbars=yes');
+      if (!checkout) RMS.toast('Please allow pop-ups to open the hosted checkout', 'error');
+    }
+
+    window.addEventListener('message', (event) => {
+      if (event.origin !== window.location.origin || event.data?.type !== 'oxford-payment-sandbox') return;
+      if (String(event.data.order_id) !== String(document.getElementById('pay-order').value)) return;
+      if (event.data.status === 'approved') {
+        document.getElementById('pay-reference').value = event.data.reference || '';
+        document.getElementById('terminal-confirmed').value = '1';
+        document.getElementById('terminal-status').textContent = 'Approved · ' + (event.data.reference || 'transaction authorized');
+        document.getElementById('ewallet-status').textContent = 'Approved · ' + (event.data.reference || 'transaction authorized');
+        document.getElementById('ewallet-status').classList.remove('hidden');
+        RMS.toast('Hosted checkout approved. Review and complete the payment.');
+      } else if (event.data.status === 'declined') {
+        document.getElementById('terminal-confirmed').value = '0';
+        RMS.toast('Hosted checkout was declined', 'error');
+      }
+    });
 
     function posSignature(orders, pays, circuitText) {
       const orderKey = orders.map((o) => [o.id, o.order_number, o.table_number || '', o.total, o.status].join(':')).join('|');
@@ -353,7 +381,7 @@
           document.getElementById('terminal-amount').textContent = RMS.money(remaining);
           document.getElementById('cash-tendered').value = Number(remaining).toFixed(2);
           document.getElementById('cash-change').textContent = '₱0.00';
-          document.getElementById('terminal-status').textContent = 'Ready for tap / insert / swipe…';
+          document.getElementById('terminal-status').textContent = 'Ready to open the hosted terminal…';
           document.getElementById('split-amount').value = '';
           document.getElementById('split-amount-2').value = '';
           syncPayMethodUi();
@@ -382,14 +410,13 @@
     document.getElementById('pay-method').onchange = syncPayMethodUi;
     document.getElementById('cash-tendered').oninput = updateCashChange;
     document.getElementById('discount-type').onchange = syncDiscountIdUi;
-    document.getElementById('btn-terminal-tap').onclick = () => {
-      document.getElementById('terminal-confirmed').value = '1';
-      document.getElementById('terminal-status').textContent = 'Approved · card captured';
-      RMS.toast('Card terminal approved');
-    };
+    document.getElementById('btn-card-checkout').onclick = () => launchHostedPayment('card');
+    document.getElementById('btn-ewallet-checkout').onclick = () => launchHostedPayment(document.getElementById('pay-method').value);
     document.getElementById('btn-terminal-reset').onclick = () => {
       document.getElementById('terminal-confirmed').value = '0';
-      document.getElementById('terminal-status').textContent = 'Ready for tap / insert / swipe…';
+      document.getElementById('pay-reference').value = '';
+      document.getElementById('ewallet-status').classList.add('hidden');
+      document.getElementById('terminal-status').textContent = 'Ready to open the hosted terminal…';
     };
     document.getElementById('btn-preview').onclick = async () => {
       const mode = document.getElementById('split-mode').value;

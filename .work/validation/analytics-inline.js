@@ -1,0 +1,224 @@
+﻿
+
+
+
+    function kpi(label, value, tone) {
+      const bar = { ember: 'bg-ember', brass: 'bg-brass', sage: 'bg-sage', clay: 'bg-clay' }[tone] || 'bg-brass';
+      return `<div class="relative overflow-hidden rounded-2xl border border-line bg-parchment-light p-4 pl-5">
+        <span class="absolute inset-y-0 left-0 w-1 ${bar}"></span>
+        <div class="text-xs text-charcoal-muted">${label}</div>
+        <div class="mt-1 font-display text-2xl font-semibold leading-none">${value}</div>
+      </div>`;
+    }
+
+    function bars(rows, labelKey, valueKey, color = 'bg-ember', formatter = (v) => v) {
+      const data = (rows || []).map((r) => ({ label: String(r[labelKey] ?? 'Unknown').replaceAll('_', ' '), value: Number(r[valueKey]) || 0 })).sort((a, b) => b.value - a.value);
+      const max = Math.max(...data.map((r) => r.value), 1);
+      return data.length ? data.map((r) => `<div class="mb-3"><div class="mb-1 flex justify-between gap-3 text-xs"><span class="capitalize">${r.label}</span><strong>${formatter(r.value)}</strong></div><div class="h-2.5 overflow-hidden rounded-full bg-line/60"><div class="h-full rounded-full ${color} transition-all" style="width:${Math.max(4, Math.round((r.value / max) * 100))}%"></div></div></div>`).join('') : '<p class="text-sm text-charcoal-muted">No data available for this period.</p>';
+    }
+
+    function reportCsv(a) {
+      const rows = [['Oxford Suites RMS Analytics Report'], ['Scope', a.data.kpis.scope], ['Generated', new Date().toLocaleString()], [], ['Metric', 'Value'], ['Orders today', a.data.kpis.orders_today], ['Revenue today', a.data.kpis.revenue_today], ['Occupied tables', a.data.kpis.occupied_tables], ['Kitchen queue', a.data.kpis.kitchen_queue], ['Customer rating', a.data.kpis.customer_rating], ['Low-stock items', a.data.kpis.low_stock_items], ['Waste cost 30d', a.data.kpis.waste_cost_30d], [], ['Insight'], ...(a.data.insights || []).map((i) => [i])];
+      return rows.map((row) => row.map((v) => `"${String(v ?? '').replaceAll('"', '""')}"`).join(',')).join('\n');
+    }
+
+    RMS.mountStaffPage({
+      title: 'Analytics',
+      subtitle: 'House performance, AI recommendations, and inventory foresight in one view.',
+      async render(body) {
+        const a = await RMS.api('/analytics');
+        const k = a.data.kpis;
+        const max = Math.max(...a.data.sales_trend.map((d) => Number(d.revenue) || 0), 1);
+
+        body.innerHTML = `
+          <div class="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            ${kpi('Orders today', k.orders_today, 'ember')}
+            ${kpi('Revenue today', RMS.money(k.revenue_today), 'brass')}
+            ${kpi('Reservations today', k.reservations_today ?? k.pending_reservations, 'sage')}
+            ${kpi('Kitchen queue', k.kitchen_queue, 'clay')}
+          </div>
+          <div class="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            ${kpi('Avg prep time', (k.avg_prep_minutes || 0) + ' min', 'ember')}
+            ${kpi('Waiter response', (k.avg_waiter_response_minutes || 0) + ' min', 'brass')}
+            ${kpi('Satisfaction', (k.customer_rating || 0) + ' / 5', 'sage')}
+            ${kpi('Waste cost 30d', RMS.money(k.waste_cost_30d || 0), 'clay')}
+          </div>
+          <div class="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+            <div class="rounded-2xl border border-line bg-parchment-light p-5">
+              <div class="flex items-start justify-between gap-3"><div><h3 class="font-display text-lg font-semibold">14-day sales</h3><p class="mt-1 text-xs text-charcoal-muted">${k.scope === 'system-wide' ? 'System-wide across all users' : 'Your user-based activity'}</p></div><span class="rounded-full bg-brass/20 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-brass-deep">${k.scope || 'user-based'}</span></div>
+              <div class="mt-4 mb-5 flex h-36 items-end gap-1.5">
+                ${a.data.sales_trend.map((d) => `
+                  <div class="relative flex-1 rounded-t bg-gradient-to-t from-ember to-brass opacity-90" style="height:${Math.round((Number(d.revenue)/max)*100)}%">
+                    <span class="absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] text-charcoal-muted">${String(d.day).slice(5)}</span>
+                  </div>`).join('')}
+              </div>
+            </div>
+            <div class="rounded-2xl border border-line bg-parchment-light p-5">
+              <h3 class="mb-3 font-display text-lg font-semibold">Order mix</h3>
+              <div class="divide-y divide-line/70">
+                ${a.data.order_status.map((s) => `
+                  <div class="flex items-center justify-between py-2.5 text-sm">
+                    ${RMS.statusBadge(s.status)}<span class="font-semibold">${s.count}</span>
+                  </div>`).join('')}
+              </div>
+            </div>
+          </div>
+          <div class="mt-4 grid gap-4 lg:grid-cols-2">
+            <div class="rounded-2xl border border-line bg-parchment-light p-5">
+              <h3 class="mb-3 font-display text-lg font-semibold">Top plates (30 days)</h3>
+              <div class="divide-y divide-line/70" id="tops">
+                ${a.data.top_items.map((i) => `
+                  <div class="flex justify-between gap-3 py-2.5 text-sm">
+                    <span>${i.name}</span>
+                    <span class="text-charcoal-muted">${i.sold} Â· ${RMS.money(i.revenue)}</span>
+                  </div>`).join('')}
+              </div>
+            </div>
+            <div class="rounded-2xl border border-line bg-parchment-light p-5">
+              <h3 class="mb-3 font-display text-lg font-semibold">AI recommendation sample</h3>
+              <div id="ai-recs" class="text-sm text-charcoal-muted">Loadingâ€¦</div>
+            </div>
+          </div>`;
+
+        const sat = a.data.satisfaction || {};
+        const satTrend = a.data.satisfaction_trend || [];
+        const ratingDist = a.data.rating_distribution || [];
+        const satMax = Math.max(...satTrend.map((d) => Number(d.avg_rating) || 0), 5);
+        const distMax = Math.max(...ratingDist.map((d) => Number(d.count) || 0), 1);
+        const rushes = a.data.demand_rushes || {};
+        const demandByHour = Object.fromEntries((rushes.peak_hours || []).map((h) => [Number(h.hour), Number(h.orders) || 0]));
+        const demandHours = Array.from({ length: 12 }, (_, i) => 10 + i);
+        const demandMax = Math.max(...demandHours.map((h) => demandByHour[h] || 0), 1);
+        const demandTotal = demandHours.reduce((sum, h) => sum + (demandByHour[h] || 0), 0);
+        const formatHour = (hour) => `${hour > 12 ? hour - 12 : hour}${hour >= 12 ? 'p' : 'a'}`;
+        const demandPeak = demandHours.reduce((best, hour) => (demandByHour[hour] || 0) > (demandByHour[best] || 0) ? hour : best, demandHours[0]);
+        const wastePred = a.data.waste_prediction || {};
+        body.insertAdjacentHTML('beforeend', `
+          <div class="mt-4 grid gap-4 lg:grid-cols-3">
+            <div class="rounded-2xl border border-line bg-parchment-light p-5">
+              <h3 class="font-display text-lg font-semibold">Customer satisfaction</h3>
+              <p class="mt-2 text-sm text-charcoal-muted">${sat.responses || 0} responses Â· overall <strong>${sat.overall || 'â€”'}/5</strong></p>
+              <p class="mt-2 text-xs text-charcoal-muted">Food ${sat.food_quality || 'â€”'} Â· Service ${sat.service || 'â€”'} Â· Cleanliness ${sat.cleanliness || 'â€”'}</p>
+              <div class="mt-3">
+                <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-charcoal-muted">14-day trend</p>
+                <div class="flex h-16 items-end gap-1">
+                  ${satTrend.length ? satTrend.map((d) => `
+                    <div class="relative flex-1 rounded-t bg-sage/80" style="height:${Math.round((Number(d.avg_rating)/satMax)*100)}%" title="${d.day}: ${d.avg_rating}/5 (${d.responses})">
+                      <span class="absolute -bottom-4 left-1/2 -translate-x-1/2 whitespace-nowrap text-[8px] text-charcoal-muted">${String(d.day).slice(8)}</span>
+                    </div>`).join('') : '<p class="text-xs text-charcoal-muted">No feedback trend yet.</p>'}
+                </div>
+              </div>
+              <div class="mt-6">
+                <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-charcoal-muted">Rating distribution</p>
+                ${[5,4,3,2,1].map((stars) => {
+                  const row = ratingDist.find((r) => Number(r.stars) === stars) || { count: 0 };
+                  const pct = Math.round((Number(row.count) / distMax) * 100);
+                  return `<div class="mb-1.5 flex items-center gap-2 text-xs">
+                    <span class="w-8 shrink-0 text-charcoal-muted">${stars}â˜…</span>
+                    <div class="h-2 flex-1 overflow-hidden rounded-full bg-line/60"><div class="h-full rounded-full bg-brass" style="width:${pct}%"></div></div>
+                    <span class="w-6 text-right font-semibold">${row.count}</span>
+                  </div>`;
+                }).join('')}
+              </div>
+              <div class="mt-3 text-xs text-charcoal-muted">
+                <p class="font-semibold text-charcoal">Praised dishes</p>
+                ${(a.data.praised_items || []).slice(0,3).map((i) => `<div class="flex justify-between py-1"><span>${i.name}</span><span>${i.mentions}Ã—</span></div>`).join('') || '<p class="py-1">â€”</p>'}
+              </div>
+            </div>
+            <div class="rounded-2xl border border-line bg-parchment-light p-5">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <h3 class="font-display text-lg font-semibold">Demand windows</h3>
+                  <p class="mt-1 text-sm text-charcoal-muted">Order volume by hour over the last 30 days</p>
+                </div>
+                <span class="rounded-full bg-brass/20 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-brass-deep">${demandTotal} orders</span>
+              </div>
+              <div class="mt-5 rounded-xl border border-line/70 bg-surface p-3">
+                <div class="mb-3 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-charcoal-muted">
+                  <span>Quiet</span><span class="flex items-center gap-1.5"><i class="h-2 w-2 rounded-full bg-brass"></i> Busier</span>
+                </div>
+                <div class="grid grid-cols-12 items-end gap-1.5 sm:gap-2" style="height: 148px">
+                  ${demandHours.map((hour) => {
+                    const count = demandByHour[hour] || 0;
+                    const height = count ? Math.max(12, Math.round((count / demandMax) * 100)) : 6;
+                    const active = hour >= 11 && hour <= 14 ? 'from-brass to-[#E0B866]' : hour >= 18 && hour <= 21 ? 'from-ember to-[#D16A5B]' : 'from-sage to-[#9AAF8A]';
+                    return `<div class="flex h-full min-w-0 flex-col items-center justify-end gap-1" title="${formatHour(hour)} Â· ${count} orders">
+                      <span class="text-[9px] font-semibold text-charcoal-muted">${count || ''}</span>
+                      <div class="w-full rounded-t-md bg-gradient-to-t ${active} transition-all" style="height:${height}%"></div>
+                      <span class="text-[9px] text-charcoal-muted">${formatHour(hour)}</span>
+                    </div>`;
+                  }).join('')}
+                </div>
+                <div class="mt-3 flex flex-wrap gap-x-3 gap-y-1 border-t border-line/70 pt-2 text-[10px] text-charcoal-muted">
+                  <span><i class="mr-1 inline-block h-2 w-2 rounded-full bg-brass"></i>Lunch 11aâ€“2p</span>
+                  <span><i class="mr-1 inline-block h-2 w-2 rounded-full bg-ember"></i>Dinner 6pâ€“9p</span>
+                  <span><i class="mr-1 inline-block h-2 w-2 rounded-full bg-sage"></i>Other hours</span>
+                </div>
+              </div>
+              <div class="mt-3 grid grid-cols-2 gap-2">
+                <div class="rounded-xl border border-line bg-surface px-3 py-2.5"><div class="font-display text-xl font-semibold">${rushes.lunch_orders_30d || 0}</div><div class="text-[10px] uppercase tracking-wide text-charcoal-muted">Lunch rush orders</div></div>
+                <div class="rounded-xl border border-line bg-surface px-3 py-2.5"><div class="font-display text-xl font-semibold">${rushes.dinner_orders_30d || 0}</div><div class="text-[10px] uppercase tracking-wide text-charcoal-muted">Dinner rush orders</div></div>
+              </div>
+              <p class="mt-3 text-xs text-charcoal-muted">Busiest hour: <strong class="text-charcoal">${formatHour(demandPeak)}</strong>. Use this window to plan staffing and prep.</p>
+              <div class="mt-3 border-t border-line pt-3">
+                <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-charcoal-muted">7-day dish outlook</p>
+                ${(a.data.demand_forecast || []).slice(0,4).map((i) => `<div class="flex justify-between py-1 text-sm"><span>${i.name}</span><strong>${i.next_7_days}</strong></div>`).join('') || '<p class="text-sm text-charcoal-muted">â€”</p>'}
+              </div>
+            </div>
+            <div class="rounded-2xl border border-line bg-parchment-light p-5">
+              <h3 class="font-display text-lg font-semibold">Waste prediction</h3>
+              <p class="mt-1 text-xs text-charcoal-muted">Ingredients expiring within 7 days</p>
+              ${(wastePred.expiring_soon || []).slice(0,4).map((i) => `<div class="flex justify-between border-b border-line/70 py-2 text-sm"><span>${i.name}</span><strong class="${Number(i.days_left) <= 2 ? 'text-ember' : ''}">${i.days_left}d</strong></div>`).join('') || '<p class="mt-2 text-sm text-charcoal-muted">Nothing expiring soon.</p>'}
+              <div class="mt-3">
+                <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-charcoal-muted">Suggested promos</p>
+                ${(wastePred.suggested_promos || []).slice(0,3).map((p) => `<p class="border-b border-line/70 py-2 text-xs text-charcoal-muted">${p.promo_idea}</p>`).join('') || '<p class="text-sm text-charcoal-muted">â€”</p>'}
+              </div>
+              <div class="mt-3 border-t border-line pt-3 text-xs text-charcoal-muted">
+                Historical waste: ${(a.data.waste_insights || []).slice(0,2).map((i) => i.name + ' (' + i.quantity_wasted + ')').join(', ') || 'none logged'}
+              </div>
+            </div>
+          </div>`);
+
+        const modules = a.data.module_overview || {};
+        body.insertAdjacentHTML('beforeend', `
+          <section class="mt-5 rounded-2xl border border-line bg-parchment-light p-5 print:border-0 print:p-0">
+            <div class="flex flex-wrap items-start justify-between gap-3"><div><h3 class="font-display text-xl font-semibold">Module performance</h3><p class="mt-1 text-xs text-charcoal-muted">Operational coverage across menu, tables, orders, payments, reservations, kitchen, inventory, and promotions.</p></div><div class="flex gap-2 print:hidden"><button id="print-analytics" type="button" class="btn-secondary !text-xs">Print report</button><button id="download-analytics" type="button" class="btn-primary !text-xs">Export CSV</button></div></div>
+            <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              ${kpi('Menu available', `${modules.menu?.available || 0} / ${modules.menu?.total || 0}`, 'brass')}
+              ${kpi('Inventory value', RMS.money(modules.inventory_health?.stock_value || 0), 'sage')}
+              ${kpi('Expiring in 7 days', modules.inventory_health?.expiring_7d || 0, 'clay')}
+              ${kpi('Active promotions', modules.promotions?.active || 0, 'ember')}
+            </div>
+            <div class="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div class="rounded-xl border border-line bg-surface p-4"><h4 class="mb-3 font-display font-semibold">Orders by channel</h4>${bars(modules.orders_by_source, 'source', 'count', 'bg-ember')}</div>
+              <div class="rounded-xl border border-line bg-surface p-4"><h4 class="mb-3 font-display font-semibold">Payment mix</h4>${bars(modules.payments_by_method, 'method', 'amount', 'bg-brass', (v) => RMS.money(v))}</div>
+              <div class="rounded-xl border border-line bg-surface p-4"><h4 class="mb-3 font-display font-semibold">Table utilization</h4>${bars(modules.tables, 'status', 'count', 'bg-sage')}</div>
+              <div class="rounded-xl border border-line bg-surface p-4"><h4 class="mb-3 font-display font-semibold">Reservation pipeline</h4>${bars(modules.reservations_by_status, 'status', 'count', 'bg-clay')}</div>
+              <div class="rounded-xl border border-line bg-surface p-4"><h4 class="mb-3 font-display font-semibold">Kitchen throughput</h4>${bars(modules.kitchen_by_status, 'status', 'count', 'bg-ember')}</div>
+              <div class="rounded-xl border border-line bg-surface p-4"><h4 class="mb-3 font-display font-semibold">Inventory health</h4>${bars([{label:'Healthy', value:Math.max(0, (modules.inventory_health?.total || 0) - (modules.inventory_health?.low || 0))},{label:'Low stock', value:modules.inventory_health?.low || 0},{label:'Expiring soon', value:modules.inventory_health?.expiring_7d || 0}], 'label', 'value', 'bg-brass')}</div>
+            </div>
+          </section>
+          <section class="mt-4 rounded-2xl border border-line bg-ember/5 p-5"><div class="flex items-center justify-between gap-3"><div><h3 class="font-display text-xl font-semibold">Data insights</h3><p class="mt-1 text-xs text-charcoal-muted">Signals calculated from current module activity.</p></div><span class="rounded-full bg-surface px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-charcoal-muted">${a.data.kpis.scope || 'user-based'}</span></div><div class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">${(a.data.insights || []).map((i, index) => `<div class="rounded-xl border border-line bg-surface p-4"><div class="text-xs font-semibold uppercase tracking-wide text-ember">Insight ${index + 1}</div><p class="mt-2 text-sm leading-relaxed">${i}</p></div>`).join('')}</div></section>`);
+        document.getElementById('print-analytics').onclick = () => window.print();
+        document.getElementById('download-analytics').onclick = () => { const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([reportCsv(a)], { type: 'text/csv;charset=utf-8' })); link.download = `oxford-analytics-${new Date().toISOString().slice(0, 10)}.csv`; link.click(); URL.revokeObjectURL(link.href); RMS.toast('Analytics report exported'); };
+
+        try {
+          // Non-blocking: PHP fallback is fast; don't hold the page on a dead ML service.
+          RMS.api('/ml/recommend?limit=5').then((ml) => {
+            const el = document.getElementById('ai-recs');
+            if (!el) return;
+            el.innerHTML = (ml.data.recommendations || []).map((r) => `
+            <div class="border-b border-line py-2 text-sm text-charcoal">
+              <strong>${r.name}</strong>
+              <div class="text-xs text-charcoal-muted">score ${(r.score || 0).toFixed?.(2) || r.score || 'â€”'} Â· ${r.technique || ml.data.source}</div>
+            </div>`).join('');
+          }).catch(() => {
+            const el = document.getElementById('ai-recs');
+            if (el) el.textContent = 'ML offline';
+          });
+        } catch (e) {
+          document.getElementById('ai-recs').textContent = 'ML offline';
+        }
+      },
+    });
+  

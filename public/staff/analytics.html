@@ -99,6 +99,12 @@
         const satMax = Math.max(...satTrend.map((d) => Number(d.avg_rating) || 0), 5);
         const distMax = Math.max(...ratingDist.map((d) => Number(d.count) || 0), 1);
         const rushes = a.data.demand_rushes || {};
+        const demandByHour = Object.fromEntries((rushes.peak_hours || []).map((h) => [Number(h.hour), Number(h.orders) || 0]));
+        const demandHours = Array.from({ length: 12 }, (_, i) => 10 + i);
+        const demandMax = Math.max(...demandHours.map((h) => demandByHour[h] || 0), 1);
+        const demandTotal = demandHours.reduce((sum, h) => sum + (demandByHour[h] || 0), 0);
+        const formatHour = (hour) => `${hour > 12 ? hour - 12 : hour}${hour >= 12 ? 'p' : 'a'}`;
+        const demandPeak = demandHours.reduce((best, hour) => (demandByHour[hour] || 0) > (demandByHour[best] || 0) ? hour : best, demandHours[0]);
         const wastePred = a.data.waste_prediction || {};
         body.insertAdjacentHTML('beforeend', `
           <div class="mt-4 grid gap-4 lg:grid-cols-3">
@@ -133,10 +139,40 @@
               </div>
             </div>
             <div class="rounded-2xl border border-line bg-parchment-light p-5">
-              <h3 class="font-display text-lg font-semibold">Demand & rush hours</h3>
-              <p class="mt-2 text-sm text-charcoal-muted">Lunch rush (30d): <strong>${rushes.lunch_orders_30d || 0}</strong> · Dinner: <strong>${rushes.dinner_orders_30d || 0}</strong></p>
-              ${(rushes.peak_hours || []).slice(0,4).map((h) => `<div class="flex justify-between border-b border-line/70 py-2 text-sm"><span>${String(h.hour).padStart(2,'0')}:00</span><strong>${h.orders} orders</strong></div>`).join('') || '<p class="mt-2 text-sm text-charcoal-muted">No order history yet.</p>'}
-              <div class="mt-3 text-xs text-charcoal-muted">${(rushes.weekend_vs_weekday || []).map((p) => `${p.period}: ${p.orders} orders · avg ${RMS.money(p.avg_ticket)}`).join(' · ')}</div>
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <h3 class="font-display text-lg font-semibold">Demand windows</h3>
+                  <p class="mt-1 text-sm text-charcoal-muted">Order volume by hour over the last 30 days</p>
+                </div>
+                <span class="rounded-full bg-brass/20 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-brass-deep">${demandTotal} orders</span>
+              </div>
+              <div class="mt-5 rounded-xl border border-line/70 bg-surface p-3">
+                <div class="mb-3 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-charcoal-muted">
+                  <span>Quiet</span><span class="flex items-center gap-1.5"><i class="h-2 w-2 rounded-full bg-brass"></i> Busier</span>
+                </div>
+                <div class="grid grid-cols-12 items-end gap-1.5 sm:gap-2" style="height: 148px">
+                  ${demandHours.map((hour) => {
+                    const count = demandByHour[hour] || 0;
+                    const height = count ? Math.max(12, Math.round((count / demandMax) * 100)) : 6;
+                    const active = hour >= 11 && hour <= 14 ? 'from-brass to-[#E0B866]' : hour >= 18 && hour <= 21 ? 'from-ember to-[#D16A5B]' : 'from-sage to-[#9AAF8A]';
+                    return `<div class="flex h-full min-w-0 flex-col items-center justify-end gap-1" title="${formatHour(hour)} · ${count} orders">
+                      <span class="text-[9px] font-semibold text-charcoal-muted">${count || ''}</span>
+                      <div class="w-full rounded-t-md bg-gradient-to-t ${active} transition-all" style="height:${height}%"></div>
+                      <span class="text-[9px] text-charcoal-muted">${formatHour(hour)}</span>
+                    </div>`;
+                  }).join('')}
+                </div>
+                <div class="mt-3 flex flex-wrap gap-x-3 gap-y-1 border-t border-line/70 pt-2 text-[10px] text-charcoal-muted">
+                  <span><i class="mr-1 inline-block h-2 w-2 rounded-full bg-brass"></i>Lunch 11a–2p</span>
+                  <span><i class="mr-1 inline-block h-2 w-2 rounded-full bg-ember"></i>Dinner 6p–9p</span>
+                  <span><i class="mr-1 inline-block h-2 w-2 rounded-full bg-sage"></i>Other hours</span>
+                </div>
+              </div>
+              <div class="mt-3 grid grid-cols-2 gap-2">
+                <div class="rounded-xl border border-line bg-surface px-3 py-2.5"><div class="font-display text-xl font-semibold">${rushes.lunch_orders_30d || 0}</div><div class="text-[10px] uppercase tracking-wide text-charcoal-muted">Lunch rush orders</div></div>
+                <div class="rounded-xl border border-line bg-surface px-3 py-2.5"><div class="font-display text-xl font-semibold">${rushes.dinner_orders_30d || 0}</div><div class="text-[10px] uppercase tracking-wide text-charcoal-muted">Dinner rush orders</div></div>
+              </div>
+              <p class="mt-3 text-xs text-charcoal-muted">Busiest hour: <strong class="text-charcoal">${formatHour(demandPeak)}</strong>. Use this window to plan staffing and prep.</p>
               <div class="mt-3 border-t border-line pt-3">
                 <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-charcoal-muted">7-day dish outlook</p>
                 ${(a.data.demand_forecast || []).slice(0,4).map((i) => `<div class="flex justify-between py-1 text-sm"><span>${i.name}</span><strong>${i.next_7_days}</strong></div>`).join('') || '<p class="text-sm text-charcoal-muted">—</p>'}

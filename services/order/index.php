@@ -22,7 +22,10 @@ class OrderService
         if ($method === 'GET' && $sub === '') {
             $status = $this->query('status');
             $mine = $this->query('mine');
-            $sql = 'SELECT o.*, t.table_number FROM orders o LEFT JOIN dining_tables t ON t.id = o.table_id';
+            $sql = 'SELECT o.*, t.table_number,
+                           COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.order_id=o.id AND p.status="completed"),0) AS paid_total,
+                           GREATEST(0, o.total - COALESCE((SELECT SUM(p2.amount) FROM payments p2 WHERE p2.order_id=o.id AND p2.status="completed"),0)) AS payment_remaining
+                    FROM orders o LEFT JOIN dining_tables t ON t.id = o.table_id';
             $params = [];
             $where = [];
             if ($mine === '1') {
@@ -341,7 +344,10 @@ class OrderService
 
     private function fetchOrder(PDO $pdo, int $id): ?array
     {
-        $stmt = $pdo->prepare('SELECT o.*, t.table_number FROM orders o LEFT JOIN dining_tables t ON t.id = o.table_id WHERE o.id = ?');
+        $stmt = $pdo->prepare('SELECT o.*, t.table_number,
+                                      COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.order_id=o.id AND p.status="completed"),0) AS paid_total,
+                                      GREATEST(0, o.total - COALESCE((SELECT SUM(p2.amount) FROM payments p2 WHERE p2.order_id=o.id AND p2.status="completed"),0)) AS payment_remaining
+                               FROM orders o LEFT JOIN dining_tables t ON t.id = o.table_id WHERE o.id = ?');
         $stmt->execute([$id]);
         $order = $stmt->fetch();
         if (!$order) {

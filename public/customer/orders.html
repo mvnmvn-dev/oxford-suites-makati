@@ -48,7 +48,8 @@
             </div>
             ${trackingMarkup(o)}
             <ul class="mt-4 space-y-2 border-t border-[#E8DFD0] pt-4">${(o.items || []).map((i) => `<li class="flex justify-between gap-3 text-sm"><span><strong>${i.quantity}×</strong> ${i.item_name}${i.notes ? `<div class="text-[11px] text-[#A67C3A]">${i.notes}</div>` : ''}</span><span class="text-[#6B635C]">${RMS.money(i.unit_price * i.quantity)}</span></li>`).join('') || '<li class="text-sm text-[#6B635C]">No line items</li>'}</ul>
-            ${!['paid','cancelled'].includes(o.status) ? `<button type="button" data-pay-order="${o.id}" class="mt-4 rounded-lg bg-[#A8342A] px-3 py-2 text-xs font-bold uppercase tracking-wide text-white">Pay this order</button>` : ''}
+            ${!['paid','cancelled'].includes(o.status) && Number(o.payment_remaining ?? o.total) > 0 ? `<button type="button" data-pay-order="${o.id}" class="mt-4 rounded-lg bg-[#A8342A] px-3 py-2 text-xs font-bold uppercase tracking-wide text-white">Pay this order</button>` : ''}
+            ${!['paid','cancelled'].includes(o.status) && Number(o.payment_remaining ?? o.total) <= 0 ? `<span class="mt-4 inline-flex rounded-lg bg-[#D8E2D0] px-3 py-2 text-xs font-bold uppercase tracking-wide text-[#536A45]">Paid online · awaiting service</span>` : ''}
             ${o.status === 'paid' ? `<button type="button" data-feedback="${o.id}" class="mt-4 rounded-lg border border-[#A8342A] px-3 py-2 text-xs font-bold uppercase tracking-wide text-[#A8342A]">Rate this order</button>` : ''}
           </article>`).join('')}</div>
 
@@ -119,7 +120,7 @@
         try {
           const bill = await RMS.api('/payments/bill/' + orderId);
           const amount = Number(bill.data.remaining || 0);
-          const checkout = window.open(`../staff/payment-sandbox.html?method=${encodeURIComponent(method)}&amount=${amount.toFixed(2)}&order=${orderId}`, 'oxfordCustomerHostedPayment', 'width=480,height=760,resizable=yes,scrollbars=yes');
+          const checkout = window.open(`../staff/payment-sandbox.html?method=${encodeURIComponent(method)}&amount=${amount.toFixed(2)}&order=${orderId}&channel=guest`, 'oxfordCustomerHostedPayment', 'width=480,height=760,resizable=yes,scrollbars=yes');
           if (!checkout) RMS.toast('Please allow pop-ups to open the hosted checkout', 'error');
         } catch (ex) {
           RMS.toast(ex.message, 'error');

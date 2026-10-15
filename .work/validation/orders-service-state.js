@@ -1,0 +1,157 @@
+﻿
+try { localStorage.setItem('oxford-rms-theme', 'light'); } catch (e) {} document.documentElement.classList.remove('dark');
+
+
+
+    let trackingTimer;
+    const stageOrder = ['pending', 'preparing', 'ready', 'served'];
+    function trackingMarkup(o) {
+      const cancelled = o.status === 'cancelled';
+      const current = stageOrder.indexOf(o.status === 'confirmed' ? 'pending' : o.status);
+      return `<div class="mt-4 rounded-xl bg-[#F3ECE1] p-4">
+        <div class="flex items-center justify-between gap-3">
+          <div><p class="text-[10px] font-bold uppercase tracking-[0.14em] text-[#A67C3A]">Live order tracking</p><p class="mt-1 text-sm font-semibold text-[#241E1C]">${o.status_label || (cancelled ? 'Order cancelled' : 'Order received')}</p></div>
+          <span class="text-xs text-[#6B635C]">Updates automatically</span>
+        </div>
+        ${cancelled ? '<p class="mt-3 text-sm text-[#8F2C24]">This order was cancelled.</p>' : `<div class="mt-4 grid grid-cols-4 gap-1">${stageOrder.map((s, i) => `<div class="text-center"><div class="mx-auto h-3 w-3 rounded-full ${i <= current ? 'bg-[#A8342A]' : 'bg-[#D9CFC2]'}"></div><p class="mt-1 text-[10px] capitalize text-[#6B635C]">${s === 'pending' ? 'Received' : s === 'ready' ? 'Ready' : s === 'preparing' ? 'Preparing' : 'Served'}</p></div>`).join('')}</div>`}
+      </div>`;
+    }
+    async function renderOrders(body) {
+      const res = await RMS.api('/orders?mine=1');
+      const orders = res.data || [];
+      if (!orders.length) {
+        body.innerHTML = `<div class="rounded-2xl border border-[#D9CFC2] bg-[#FFFCFA] px-6 py-16 text-center"><h2 class="font-display text-2xl font-semibold">No orders yet</h2><p class="mx-auto mt-2 max-w-sm text-sm text-[#6B635C]">When you order from the digital menu while signed in, your tickets appear here.</p><a href="${RMS.customerMenuHref()}" class="btn-primary mt-6 inline-flex">Browse the menu</a></div>`;
+        return;
+      }
+      body.innerHTML = `<div class="mb-4 rounded-xl border border-[#D9CFC2] bg-[#FFFCFA] px-4 py-3 text-sm text-[#6B635C]">Active tickets refresh every 10 seconds while the kitchen works.</div>
+        <div class="space-y-4">${orders.map((o) => `
+          <article class="rounded-2xl border border-[#D9CFC2] bg-[#FFFCFA] p-5">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 class="font-display text-xl font-semibold">${o.order_number}</h3>
+                <p class="mt-1 text-sm text-[#6B635C]">${o.table_number ? 'Table ' + o.table_number + ' Â· ' : ''}${o.source || 'qr'} Â· ${o.created_at || ''}</p>
+              </div>
+              <div class="text-right">${RMS.statusBadge(o.status)}<div class="mt-2 font-display text-lg font-semibold text-[#A8342A]">${RMS.money(o.total)}</div></div>
+            </div>
+            ${trackingMarkup(o)}
+            <ul class="mt-4 space-y-2 border-t border-[#E8DFD0] pt-4">${(o.items || []).map((i) => `<li class="flex justify-between gap-3 text-sm"><span><strong>${i.quantity}Ã—</strong> ${i.item_name}${i.notes ? `<div class="text-[11px] text-[#A67C3A]">${i.notes}</div>` : ''}</span><span class="text-[#6B635C]">${RMS.money(i.unit_price * i.quantity)}</span></li>`).join('') || '<li class="text-sm text-[#6B635C]">No line items</li>'}</ul>
+            ${!['paid','cancelled'].includes(o.status) && Number(o.payment_remaining ?? o.total) > 0 ? `<button type="button" data-pay-order="${o.id}" class="mt-4 rounded-lg bg-[#A8342A] px-3 py-2 text-xs font-bold uppercase tracking-wide text-white">Pay this order</button>` : ''}
+            ${!['paid','cancelled'].includes(o.status) && Number(o.payment_remaining ?? o.total) <= 0 ? `<span class="mt-4 inline-flex rounded-lg bg-[#D8E2D0] px-3 py-2 text-xs font-bold uppercase tracking-wide text-[#536A45]">Paid online Â· awaiting service</span>` : ''}
+            ${o.status === 'paid' ? `<button type="button" data-feedback="${o.id}" class="mt-4 rounded-lg border border-[#A8342A] px-3 py-2 text-xs font-bold uppercase tracking-wide text-[#A8342A]">Rate this order</button>` : ''}
+          </article>`).join('')}</div>
+
+        <div id="feedback-modal" class="rms-modal-backdrop hidden" role="dialog" aria-modal="true">
+          <div class="rms-modal max-w-md">
+            <h2 class="font-display text-xl font-semibold">Rate your experience</h2>
+            <p class="mt-1 text-sm text-[#6B635C]">Food, service, cleanliness, and overall â€” 1 to 5.</p>
+            <form id="feedback-form" class="mt-4 space-y-3">
+              <input type="hidden" id="fb-order-id" />
+              ${[['food_quality','Food quality'],['service','Service'],['cleanliness','Cleanliness'],['overall','Overall']].map(([k,l]) => `
+                <div>
+                  <label class="mb-1 block text-xs font-semibold text-[#6B635C]">${l}</label>
+                  <select id="fb-${k}" class="field" required>
+                    ${[5,4,3,2,1].map((n) => `<option value="${n}" ${n===5?'selected':''}>${n}</option>`).join('')}
+                  </select>
+                </div>`).join('')}
+              <div>
+                <label class="mb-1 block text-xs font-semibold text-[#6B635C]">Comment (optional)</label>
+                <textarea id="fb-comment" class="field" rows="3" placeholder="What stood out?"></textarea>
+              </div>
+              <div class="flex justify-end gap-2 pt-2">
+                <button type="button" class="btn-secondary" data-modal-close>Cancel</button>
+                <button type="submit" class="btn-primary">Submit feedback</button>
+              </div>
+            </form>
+          </div>
+        </div>
+        <div id="customer-payment-modal" class="rms-modal-backdrop hidden" role="dialog" aria-modal="true">
+          <div class="rms-modal max-w-md">
+            <p class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#A67C3A]">Secure hosted checkout</p>
+            <h2 class="mt-1 font-display text-xl font-semibold">Pay your order</h2>
+            <p id="customer-pay-summary" class="mt-1 text-sm text-[#6B635C]">Choose a payment method for your outstanding balance.</p>
+            <form id="customer-payment-form" class="mt-4 space-y-3">
+              <input type="hidden" id="customer-pay-order" />
+              <label class="block text-xs font-semibold text-[#6B635C]">Payment method</label>
+              <select id="customer-pay-method" class="field"><option value="card">Card</option><option value="gcash">GCash</option><option value="maya">Maya</option></select>
+              <div class="rounded-xl border border-[#D9CFC2] bg-[#F6F1E9] p-3 text-xs text-[#6B635C]">A secure hosted checkout will open in a separate window. Review the amount before authorizing.</div>
+              <div class="flex justify-end gap-2 pt-2"><button type="button" class="btn-secondary" data-modal-close>Cancel</button><button type="submit" class="btn-primary">Continue to checkout</button></div>
+            </form>
+          </div>
+        </div>`;
+      RMS.bindModalDismiss('feedback-modal');
+      RMS.bindModalDismiss('customer-payment-modal');
+      body.onclick = (event) => {
+        const payButton = event.target.closest('[data-pay-order]');
+        if (payButton) {
+          const orderId = payButton.dataset.payOrder;
+          document.getElementById('customer-pay-order').value = orderId;
+          document.getElementById('customer-pay-summary').textContent = 'Loading your outstanding balanceâ€¦';
+          RMS.openModal('customer-payment-modal');
+          RMS.api('/payments/bill/' + orderId).then((bill) => {
+            document.getElementById('customer-pay-summary').textContent = `${bill.data.order_number || 'Order'} Â· Outstanding balance ${RMS.money(bill.data.remaining ?? bill.data.total ?? 0)}`;
+          }).catch((ex) => {
+            RMS.closeModal('customer-payment-modal');
+            RMS.toast(ex.message, 'error');
+          });
+          return;
+        }
+        const btn = event.target.closest('[data-feedback]');
+        if (!btn) return;
+        document.getElementById('fb-order-id').value = btn.dataset.feedback;
+        RMS.openModal('feedback-modal');
+      };
+      document.getElementById('customer-payment-form').onsubmit = async (event) => {
+        event.preventDefault();
+        const orderId = Number(document.getElementById('customer-pay-order').value);
+        const method = document.getElementById('customer-pay-method').value;
+        try {
+          const bill = await RMS.api('/payments/bill/' + orderId);
+          const amount = Number(bill.data.remaining || 0);
+          const checkout = window.open(`../staff/payment-sandbox.html?method=${encodeURIComponent(method)}&amount=${amount.toFixed(2)}&order=${orderId}&channel=guest`, 'oxfordCustomerHostedPayment', 'width=480,height=760,resizable=yes,scrollbars=yes');
+          if (!checkout) RMS.toast('Please allow pop-ups to open the hosted checkout', 'error');
+        } catch (ex) {
+          RMS.toast(ex.message, 'error');
+        }
+      };
+      window.onmessage = async (event) => {
+        if (event.origin !== window.location.origin || event.data?.type !== 'oxford-payment-sandbox') return;
+        if (String(event.data.order_id) !== String(document.getElementById('customer-pay-order').value)) return;
+        if (event.data.status !== 'approved') {
+          RMS.toast('Checkout was declined. No funds were moved.', 'error');
+          return;
+        }
+        try {
+          const orderId = Number(document.getElementById('customer-pay-order').value);
+          const method = document.getElementById('customer-pay-method').value;
+          const result = await RMS.api('/payments', { method: 'POST', body: { order_id: orderId, method, reference_no: event.data.reference, terminal_confirmed: true } });
+          RMS.closeModal('customer-payment-modal');
+          RMS.toast('Payment approved Â· ' + (result.data.receipt_no || event.data.reference));
+          await renderOrders(body);
+        } catch (ex) {
+          RMS.toast(ex.message, 'error');
+        }
+      };
+      document.getElementById('feedback-form').onsubmit = async (e) => {
+        e.preventDefault();
+        try {
+          await RMS.api('/feedback', {
+            method: 'POST',
+            body: {
+              order_id: Number(document.getElementById('fb-order-id').value),
+              food_quality: Number(document.getElementById('fb-food_quality').value),
+              service: Number(document.getElementById('fb-service').value),
+              cleanliness: Number(document.getElementById('fb-cleanliness').value),
+              overall: Number(document.getElementById('fb-overall').value),
+              comment: document.getElementById('fb-comment').value.trim(),
+            },
+          });
+          RMS.closeModal('feedback-modal');
+          RMS.toast('Thank you for your feedback.');
+          await renderOrders(body);
+        } catch (ex) {
+          RMS.toast(ex.message, 'error');
+        }
+      };
+    }
+    RMS.mountCustomerPage({ active: 'orders', title: 'My orders', subtitle: 'Tickets linked to your guest account â€” from the suite kitchen to your table.', async render(body) { await renderOrders(body); clearInterval(trackingTimer); trackingTimer = setInterval(() => renderOrders(body).catch(() => {}), 10000); } });
+  

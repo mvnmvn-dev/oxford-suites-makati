@@ -189,7 +189,7 @@ class PaymentService
                 }
                 $newPaid = $alreadyPaid + $requested;
                 $settled = $newPaid >= (float)$order['total'] - 0.01;
-                if ($settled) {
+                if ($settled && ($user['role'] ?? '') !== 'customer') {
                     $pdo->prepare("UPDATE orders SET status='paid' WHERE id=?")->execute([$orderId]);
                     if (!empty($order['table_id'])) {
                         $pdo->prepare("UPDATE dining_tables SET status='cleaning' WHERE id=?")->execute([(int)$order['table_id']]);
@@ -213,6 +213,27 @@ class PaymentService
                             ($order['order_number'] ?? ('Order #' . $orderId)) . ' · ₱' . number_format((float)$order['total'], 2) . ' paid',
                             'payment',
                         ]);
+                }
+                if ($settled && ($user['role'] ?? '') === 'customer') {
+                    $receiptLabel = $receipts[0] ?? 'paid';
+                    if (!empty($order['customer_id'])) {
+                        $pdo->prepare('INSERT INTO notifications (user_id, role_target, title, body, type) VALUES (?,?,?,?,?)')
+                            ->execute([
+                                (int)$order['customer_id'],
+                                'customer',
+                                'Payment received',
+                                ($order['order_number'] ?? 'Your order') . ' payment confirmed · ' . $receiptLabel . ' · Your order is still being prepared.',
+                                'payment',
+                            ]);
+                    }
+                    $pdo->prepare('INSERT INTO notifications (role_target, title, body, type) VALUES (?,?,?,?)')
+                        ->execute([
+                            'cashier',
+                            'Online payment received',
+                            ($order['order_number'] ?? ('Order #' . $orderId)) . ' · ₱' . number_format((float)$order['total'], 2) . ' paid online · service status unchanged',
+                            'payment',
+                        ]);
+                    $this->awardLoyalty($pdo, $order);
                 }
                 $pdo->commit();
                 $breaker->recordSuccess();

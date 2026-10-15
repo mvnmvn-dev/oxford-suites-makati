@@ -209,7 +209,7 @@
       const summary = document.getElementById('pay-summary').textContent.match(/Remaining ₱([\d,]+\.\d{2})/);
       const amount = summary ? Number(summary[1].replace(/,/g, '')) : 0;
       if (!orderId || amount <= 0) return RMS.toast('Open a valid bill before starting checkout', 'error');
-      const params = new URLSearchParams({ method, amount: amount.toFixed(2), order: String(orderId) });
+      const params = new URLSearchParams({ method, amount: amount.toFixed(2), order: String(orderId), channel: 'staff' });
       const checkout = window.open('payment-sandbox.html?' + params.toString(), 'oxfordHostedPayment', 'width=480,height=760,resizable=yes,scrollbars=yes');
       if (!checkout) RMS.toast('Please allow pop-ups to open the hosted checkout', 'error');
     }
@@ -267,7 +267,7 @@
             <td class="px-3 py-3 text-sm">${o.table_number || '—'}</td>
             <td class="px-3 py-3 text-sm font-semibold">${RMS.money(o.total)}</td>
             <td class="px-3 py-3">${RMS.statusBadge(o.status)}</td>
-            <td class="px-3 py-3"><button type="button" class="btn-sm" data-pay="${o.id}">Pay</button></td>
+            <td class="px-3 py-3">${Number(o.payment_remaining ?? o.total) > 0 ? `<button type="button" class="btn-sm" data-pay="${o.id}">Pay</button>` : '<span class="text-xs font-semibold text-sage-deep">Paid online</span>'}</td>
           </tr>`).join('') || '<tr><td colspan="5" class="px-3 py-8 text-center text-sm text-charcoal-muted">No open checks.</td></tr>';
 
         receiptsEl.innerHTML = pays.map((p) =>

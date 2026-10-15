@@ -59,12 +59,25 @@
           <input id="pay-reference" class="field" placeholder="e.g. 1234567890" autocomplete="off" />
           <p class="text-[11px] text-charcoal-muted">Ask the guest to pay via the e-wallet, then enter the confirmation / reference number.</p>
         </div>
+        <div id="cash-fields" class="space-y-2 rounded-xl border border-line bg-parchment/50 p-3">
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Amount received</label>
+              <input id="cash-tendered" class="field" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" autocomplete="off" />
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-semibold text-charcoal-muted">Change due</label>
+              <div id="cash-change" class="field flex items-center bg-white font-semibold tabular-nums">₱0.00</div>
+            </div>
+          </div>
+          <p class="text-[11px] text-charcoal-muted">Cash is only accepted when the amount received covers the selected payment.</p>
+        </div>
         <div id="card-terminal" class="hidden space-y-3 rounded-xl border border-line bg-[#1C1412] p-4 text-white">
           <p class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#E2C48A]">Card terminal</p>
           <p id="terminal-amount" class="font-display text-3xl font-semibold tabular-nums">₱0.00</p>
-          <p id="terminal-status" class="text-sm text-white/70">Waiting for tap / swipe…</p>
+            <p id="terminal-status" class="text-sm text-white/70">Ready for tap / insert / swipe…</p>
           <div class="flex gap-2">
-            <button type="button" id="btn-terminal-tap" class="btn-primary flex-1">Simulate tap / swipe</button>
+            <button type="button" id="btn-terminal-tap" class="btn-primary flex-1">Confirm terminal approval</button>
             <button type="button" id="btn-terminal-reset" class="btn-secondary !border-white/30 !text-white">Reset</button>
           </div>
           <input type="hidden" id="terminal-confirmed" value="0" />
@@ -167,12 +180,24 @@
       const method = document.getElementById('pay-method').value;
       const ewallet = ['gcash', 'maya'].includes(method);
       const card = ['card', 'debit', 'credit'].includes(method);
+      const cash = method === 'cash';
       document.getElementById('ewallet-fields').classList.toggle('hidden', !ewallet);
       document.getElementById('card-terminal').classList.toggle('hidden', !card);
+      document.getElementById('cash-fields').classList.toggle('hidden', !cash);
+      if (cash) updateCashChange();
       if (!card) {
         document.getElementById('terminal-confirmed').value = '0';
-        document.getElementById('terminal-status').textContent = 'Waiting for tap / swipe…';
+        document.getElementById('terminal-status').textContent = 'Ready for tap / insert / swipe…';
       }
+    }
+
+    function updateCashChange() {
+      const received = Number(document.getElementById('cash-tendered').value || 0);
+      const summary = document.getElementById('pay-summary').textContent.match(/Remaining ₱([\d,]+\.\d{2})/);
+      const due = summary ? Number(summary[1].replace(/,/g, '')) : 0;
+      const change = Math.max(0, received - due);
+      document.getElementById('cash-change').textContent = RMS.money(change);
+      document.getElementById('cash-change').classList.toggle('text-ember', received > 0 && received < due);
     }
 
     function syncDiscountIdUi() {
@@ -312,6 +337,8 @@
           document.getElementById('discount-type').value = '';
           document.getElementById('discount-id-number').value = '';
           document.getElementById('pay-reference').value = '';
+          document.getElementById('cash-tendered').value = '';
+          document.getElementById('cash-change').textContent = '₱0.00';
           document.getElementById('terminal-confirmed').value = '0';
           document.getElementById('preview-box').classList.add('hidden');
           document.getElementById('receipt-preview').classList.add('hidden');
@@ -324,7 +351,9 @@
           document.getElementById('pay-summary').textContent =
             order.order_number + ' · Table ' + (order.table_number || '—') + ' · Remaining ' + RMS.money(remaining);
           document.getElementById('terminal-amount').textContent = RMS.money(remaining);
-          document.getElementById('terminal-status').textContent = 'Waiting for tap / swipe…';
+          document.getElementById('cash-tendered').value = Number(remaining).toFixed(2);
+          document.getElementById('cash-change').textContent = '₱0.00';
+          document.getElementById('terminal-status').textContent = 'Ready for tap / insert / swipe…';
           document.getElementById('split-amount').value = '';
           document.getElementById('split-amount-2').value = '';
           syncPayMethodUi();
@@ -351,6 +380,7 @@
 
     document.getElementById('split-mode').onchange = syncSplitUi;
     document.getElementById('pay-method').onchange = syncPayMethodUi;
+    document.getElementById('cash-tendered').oninput = updateCashChange;
     document.getElementById('discount-type').onchange = syncDiscountIdUi;
     document.getElementById('btn-terminal-tap').onclick = () => {
       document.getElementById('terminal-confirmed').value = '1';
@@ -359,7 +389,7 @@
     };
     document.getElementById('btn-terminal-reset').onclick = () => {
       document.getElementById('terminal-confirmed').value = '0';
-      document.getElementById('terminal-status').textContent = 'Waiting for tap / swipe…';
+      document.getElementById('terminal-status').textContent = 'Ready for tap / insert / swipe…';
     };
     document.getElementById('btn-preview').onclick = async () => {
       const mode = document.getElementById('split-mode').value;
@@ -468,6 +498,7 @@
         promo_code: document.getElementById('promo-code').value.trim(),
         loyalty_voucher: document.getElementById('loyalty-voucher').value.trim(),
         reference_no: document.getElementById('pay-reference').value.trim() || null,
+        cash_tendered: Number(document.getElementById('cash-tendered').value || 0),
         terminal_confirmed: document.getElementById('terminal-confirmed').value === '1',
       };
       if (['gcash', 'maya'].includes(method) && !body.reference_no) {
@@ -476,6 +507,10 @@
       }
       if (['card', 'debit', 'credit'].includes(method) && !body.terminal_confirmed) {
         RMS.toast('Confirm the card on the terminal first (tap / swipe)', 'error');
+        return;
+      }
+      if (method === 'cash' && body.cash_tendered <= 0) {
+        RMS.toast('Enter the amount of cash received', 'error');
         return;
       }
       if (mode === 'mixed') {
@@ -499,7 +534,8 @@
         const res = await RMS.api('/payments', { method: 'POST', body });
         RMS.closeModal('pay-modal');
         const receipt = res.data.receipt_no || (res.data.receipts && res.data.receipts[0]) || '';
-        RMS.toast((res.data.settled ? 'Settled' : 'Partial pay') + (receipt ? ' · ' + receipt : '') + ' · ' + RMS.money(res.data.paid_now || res.data.amount));
+        const change = Number(res.data.change_due || 0) > 0 ? ' · Change ' + RMS.money(res.data.change_due) : '';
+        RMS.toast((res.data.settled ? 'Settled' : 'Partial pay') + (receipt ? ' · ' + receipt : '') + ' · ' + RMS.money(res.data.paid_now || res.data.amount) + change);
         await refresh(true);
       } catch (ex) {
         RMS.toast(ex.message, 'error');

@@ -120,6 +120,8 @@ class PaymentService
 
                 $valid = [];
                 $requested = 0.0;
+                $cashTendered = null;
+                $changeDue = 0.0;
                 foreach ($splits as $split) {
                     $payMethod = $this->normalizeMethod((string)($split['method'] ?? 'cash'));
                     $amount = round((float)($split['amount'] ?? 0), 2);
@@ -143,6 +145,13 @@ class PaymentService
                             $reference = 'TERM-' . strtoupper(substr(uniqid(), -8));
                         }
                         $gatewayRef = 'CARD-' . preg_replace('/[^A-Z0-9\-]/i', '', $reference);
+                    }
+                    if ($payMethod === 'cash' && count($splits) === 1) {
+                        $cashTendered = round((float)($b['cash_tendered'] ?? $amount), 2);
+                        if ($cashTendered < $amount) {
+                            throw new RuntimeException('Cash received is less than the payment amount of ₱' . number_format($amount, 2));
+                        }
+                        $changeDue = round($cashTendered - $amount, 2);
                     }
                     $requested += $amount;
                     $valid[] = [$payMethod, $amount, $reference !== '' ? $reference : null, (string)($split['label'] ?? 'Share'), $gatewayRef];
@@ -199,6 +208,9 @@ class PaymentService
                     'receipt_no' => $receipts[0] ?? null,
                     'receipts' => $receipts,
                     'amount' => round($requested, 2),
+                    'cash_tendered' => $cashTendered,
+                    'change_due' => $changeDue,
+                    'transaction_status' => 'approved',
                 ], $settled ? 'Payment completed' : 'Payment recorded', 201);
             } catch (Throwable $e) {
                 if ($pdo->inTransaction()) {
